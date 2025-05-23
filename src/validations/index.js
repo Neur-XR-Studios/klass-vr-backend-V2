@@ -1,0 +1,15 @@
+module.exports.authValidation = require("./auth.validation");
+module.exports.userValidation = require("./user.validation");
+module.exports.assessmentValidation = require("./assessment.validation");
+module.exports.sessionValidation = require("./session.validation");
+module.exports.experienceValidation = require("./experience.validation");
+module.exports.roleValidation = require("./role.validation");
+module.exports.contentValidation = require("./content.validation");
+module.exports.deviceValidation = require("./device.validation");
+module.exports.gradeValidation = require("./grade.validation");
+module.exports.sectionValidation = require("./section.validation");
+module.exports.studentValidation = require("./student.validation");
+module.exports.experienceConductedValidation = require("./experienceConducted.validation");
+module.exports.activeAndSyncValidation = require("./activeAndSync.validation");
+module.exports.perfomanceValidation = require("./perfomance.validation");
+module.exports.simulationValidation = require("./simulation.validation");
