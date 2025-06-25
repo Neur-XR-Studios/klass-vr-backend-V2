@@ -312,9 +312,26 @@ const getSuperAdminDashboardData = async (req, res) => {
       await ExperienceConducted.countDocuments({
         schoolID: schoolId,
       });
-    const totalNoOfAssessment = await Assessment.countDocuments({
-      schoolId,
-    });
+    const totalNoOfAssessment = await Assessment.aggregate([
+      {
+        $lookup: {
+          from: "users",
+          localField: "createdBy",
+          foreignField: "_id",
+          as: "creator",
+        },
+      },
+      { $unwind: "$creator" },
+      {
+        $match: {
+          "creator.schoolId": new mongoose.Types.ObjectId(schoolId),
+        },
+      },
+      {
+        $count: "count",
+      },
+    ]);
+
     const totalNoOfExperienceCreatedByTeacher = await Session.countDocuments({
       teacherId: new mongoose.Types.ObjectId(teacherId),
     });
@@ -391,7 +408,7 @@ const getSuperAdminDashboardData = async (req, res) => {
       AssessmentCreatedByTeacher: totalNoOfAssessmentCreatedByTeacherChartData,
       totalNoOfExperienceConducted,
       totalNoOfExperience,
-      totalNoOfAssessment,
+      totalNoOfAssessment: totalNoOfAssessment[0]?.count || 0,
     };
 
     res.status(200).json(dashboardData);
