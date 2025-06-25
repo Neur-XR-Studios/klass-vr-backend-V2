@@ -64,6 +64,21 @@ const searchStudentsBySectionAndGrade = catchAsync(async (req, res) => {
   res.status(httpStatus.OK).json(students);
 });
 
+const generatePerformanceExcel = catchAsync(async (req, res) => {
+  const { sectionId, gradeId } = req.query;
+  const schoolId = req.user.schoolId;
+
+  const filePath = await studentService.generatePerformanceExcel(sectionId, gradeId, schoolId);
+
+  res.download(filePath, 'student_performance_report.xlsx', (err) => {
+    if (err) {
+      console.error('File download error:', err);
+      res.status(500).send('Failed to download report');
+    }
+  });
+});
+
+
 module.exports = {
   createStudent,
   getStudents,
@@ -73,4 +88,5 @@ module.exports = {
   exportStudents,
   importStudentsFromExcel,
   searchStudentsBySectionAndGrade,
+  generatePerformanceExcel
 };

@@ -71,6 +71,14 @@ const queryUserSessions = catchAsync(async (req, res) => {
   res.send(result);
 });
 
+const queryUsersFromParticualarSchool = catchAsync(async (req, res) => {
+  const userId = req.user.id;
+  const schoolId = req.user.schoolId;
+  const filters = req.body;
+  const result = await sessionService.queryUsersFromParticualarSchool(filters, userId, schoolId);
+  res.send(result);
+});
+
 const queryDrafts = catchAsync(async (req, res) => {
   const userId = req.user.id;
   const result = await sessionService.getSessionsWithDrafts(userId);
@@ -87,4 +95,5 @@ module.exports = {
   filterSessions,
   queryUserSessions,
   queryDrafts,
+  queryUsersFromParticualarSchool
 };

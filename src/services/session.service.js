@@ -242,6 +242,32 @@ const queryUserSessions = async (filters, userId) => {
   }
 };
 
+const queryUsersFromParticualarSchool = async (filters, userId, schoolId) => {
+  const teacherId = userId;
+
+  try {
+    const matchCriteria = { teacherId };
+
+    if (filters.grade && filters.grade.trim() !== "") {
+      matchCriteria.grade = { $regex: filters.grade, $options: "i" };
+    }
+
+    if (filters.subject && filters.subject.trim() !== "") {
+      matchCriteria.subject = { $regex: filters.subject, $options: "i" };
+    }
+
+    if (schoolId && mongoose.Types.ObjectId.isValid(schoolId)) {
+      matchCriteria.schoolId = schoolId;
+    }
+
+    const result = await Session.find(matchCriteria);
+    return result;
+  } catch (error) {
+    console.error("Error in queryUsersFromParticualarSchool:", error);
+    throw error;
+  }
+};
+
 const getSessionsWithDrafts = async (userId) => {
   try {
     // Use the aggregation pipeline to efficiently find sessions that are drafts or have draft contents/assessments,
@@ -379,4 +405,5 @@ module.exports = {
   queryUserSessions,
   getSessionsWithDrafts,
   getConflictingSession,
+  queryUsersFromParticualarSchool,
 };

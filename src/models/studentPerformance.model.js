@@ -1,6 +1,18 @@
 const mongoose = require('mongoose');
 const aggregatePaginate = require('mongoose-aggregate-paginate-v2');
 
+const answerSchema = mongoose.Schema({
+  questionId: {
+    type: mongoose.Schema.Types.ObjectId,
+    required: true,
+    ref: 'Assessment',
+  },
+  isCorrect: {
+    type: Boolean,
+    required: true,
+  },
+});
+
 const studentPerformanceSchema = mongoose.Schema({
   studentID: {
     type: String,
@@ -30,6 +42,7 @@ const studentPerformanceSchema = mongoose.Schema({
     type: Number,
     required: true,
   },
+  answer: answerSchema,
 });
 
 studentPerformanceSchema.plugin(aggregatePaginate);

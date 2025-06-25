@@ -26,6 +26,7 @@ router
   .post(auth('manageSession'), validate(sessionValidation.filterSessions), sessionController.filterSessions);
 
 router.route('/users').post(auth('manageSession'), sessionController.queryUserSessions);
+router.route('/users/belongs-to-school').post(auth('manageSession'), sessionController.queryUsersFromParticualarSchool);
 router.route('/drafts').post(auth('manageSession'), sessionController.queryDrafts);
 module.exports = router;
 
@@ -374,4 +375,40 @@ module.exports = router;
  *          $ref: '#/components/responses/Unauthorized'
  *       '403':
  *          $ref: '#/components/responses/Forbidden'
+ */
+
+/**
+ * @swagger
+ * /sessions/users/belongs-to-school:
+ *   post:
+ *     summary: Get user-created sessions belonging to a specific school
+ *     description: Retrieve sessions filtered by the user and their associated school.
+ *     tags:
+ *       - Session
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               grade:
+ *                 type: string
+ *               subject:
+ *                 type: string
+ *     responses:
+ *       '200':
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/Session'
+ *       '401':
+ *         $ref: '#/components/responses/Unauthorized'
+ *       '403':
+ *         $ref: '#/components/responses/Forbidden'
  */
