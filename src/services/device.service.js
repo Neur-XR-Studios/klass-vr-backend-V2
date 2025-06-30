@@ -10,36 +10,39 @@ const { Device, School } = require("../models");
 async function createDevice(deviceData) {
   const schoolSecretId = deviceData.schoolID;
   const deviceId = deviceData.deviceID;
-  const school = await School.findOne({
-    vrDeviceRegisterSecret: schoolSecretId,
-  });
 
+  const school = await School.findOne({ vrDeviceRegisterSecret: schoolSecretId });
   if (!school) {
     throw new ApiError(httpStatus.NOT_FOUND, "School not found!!");
   }
 
   const vrDeviceRegisterSecret = school.vrDeviceRegisterSecret;
-  const isDeviceIdQuery = await Device.findOne({ deviceID: deviceId });
-  const deviceIdExists = !!isDeviceIdQuery;
-
   if (schoolSecretId !== vrDeviceRegisterSecret) {
     throw new ApiError(httpStatus.BAD_REQUEST, "Invalid school secret ID");
   }
 
-  if (deviceIdExists) {
+  const deviceExists = await Device.findOne({ deviceID: deviceId });
+  if (deviceExists) {
     throw new ApiError(httpStatus.BAD_REQUEST, "Device already registered");
   }
 
   const countDevices = await Device.countDocuments({ schoolID: school._id });
   const maxAllowedDevices = school.maxAllowedDevice;
+
   if (countDevices >= maxAllowedDevices) {
-    throw new ApiError(
-      httpStatus.BAD_REQUEST,
-      "Maximum device limit exceeded for this school"
-    );
+    throw new ApiError(httpStatus.BAD_REQUEST, "Maximum device limit exceeded for this school");
   }
 
-  const uniqueID = ("00" + (countDevices + 1)).slice(-2);
+  // 🧠 Find the smallest unused uniqueID starting from 01
+  const existingUniqueIDs = await Device.find({ schoolID: school._id }).select("uniqueID");
+  const usedIDs = new Set(existingUniqueIDs.map(d => parseInt(d.uniqueID, 10)));
+
+  let nextID = 1;
+  while (usedIDs.has(nextID)) {
+    nextID++;
+  }
+
+  const uniqueID = nextID.toString().padStart(2, "0");
 
   deviceData.schoolID = school._id;
   const device = new Device({ ...deviceData, uniqueID });
@@ -47,6 +50,7 @@ async function createDevice(deviceData) {
 
   return { code: 200, message: "Device created successfully", device };
 }
+
 
 /**
  * Update an existing device record.
@@ -63,41 +67,24 @@ const updateDeviceById = async (deviceId, updateData, schoolId) => {
 
   const school = await School.findById(schoolId);
   if (!school) {
-    throw new ApiError(
-      httpStatus.NOT_FOUND,
-      "School not found for this device"
-    );
+    throw new ApiError(httpStatus.NOT_FOUND, "School not found for this device");
   }
 
-  // Get the highest uniqueID currently in use for the school
-  const highestUniqueIDDevice = await Device.findOne({ schoolID: schoolId })
-    .sort({ uniqueID: -1 })
-    .exec();
-
-  const highestUniqueID = parseInt(highestUniqueIDDevice.uniqueID, 10);
-
-  // Check if the new uniqueID is valid
-  if (updateData.uniqueID) {
-    const newUniqueID = parseInt(updateData.uniqueID, 10);
-
-    if (newUniqueID > highestUniqueID) {
-      throw new ApiError(
-        httpStatus.BAD_REQUEST,
-        `Unique ID cannot exceed ${highestUniqueID}`
-      );
-    }
+  // 🧠 Check uniqueness of uniqueID if it is being updated
+  if (updateData.uniqueID && updateData.uniqueID !== device.uniqueID) {
+    const newUniqueID = updateData.uniqueID.toString().padStart(2, "0");
 
     const uniqueIdExists = await Device.findOne({
       schoolID: schoolId,
-      uniqueID: updateData.uniqueID,
+      uniqueID: newUniqueID,
+      _id: { $ne: deviceId }, // exclude current device
     });
 
-    if (uniqueIdExists && uniqueIdExists._id.toString() !== deviceId) {
-      throw new ApiError(
-        httpStatus.BAD_REQUEST,
-        "Unique ID already in use within this school"
-      );
+    if (uniqueIdExists) {
+      throw new ApiError(httpStatus.BAD_REQUEST, "Unique ID already in use within this school");
     }
+
+    updateData.uniqueID = newUniqueID;
   }
 
   Object.keys(updateData).forEach((field) => {
@@ -107,6 +94,7 @@ const updateDeviceById = async (deviceId, updateData, schoolId) => {
   await device.save();
   return device;
 };
+
 
 /**
  * Query devices based on provided filters and options.
