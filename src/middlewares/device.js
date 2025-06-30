@@ -17,6 +17,11 @@ const verifyDevice = async (req) => {
     );
   }
 
+  if (!device.isActive) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, "Device is not activated");
+  }
+
+
   req.device = device;
 
   // Check if the associated school's subscription is active

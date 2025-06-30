@@ -115,7 +115,6 @@ const updateDeviceById = async (deviceId, updateData, schoolId) => {
  * @returns {Promise<Array<Device>>} - Array of devices.
  */
 const queryDevices = async (filter, options, schoolId) => {
-  console.log("schoolId:", schoolId);
   filter.schoolID = schoolId;
   const devices = await Device.find(filter)
     .sort(options.sortBy)
@@ -139,11 +138,20 @@ const getDeviceById = async (deviceId) => {
  * @returns {Promise<void>}
  */
 const deleteDeviceById = async (deviceId) => {
-  const device = await Device.findByIdAndDelete(deviceId);
+  const device = await Device.findById(deviceId);
   if (!device) {
     throw new ApiError("Device not found", 404);
   }
+
+  const schoolId = device.schoolID;
+  await device.deleteOne();
+  await School.findByIdAndUpdate(schoolId, {
+    $inc: { currentDeviceCount: -1 },
+    $max: { currentDeviceCount: 0 },
+  });
+
 };
+
 
 module.exports = {
   createDevice,
