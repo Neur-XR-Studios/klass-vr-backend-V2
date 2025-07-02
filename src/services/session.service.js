@@ -243,10 +243,9 @@ const queryUserSessions = async (filters, userId) => {
 };
 
 const queryUsersFromParticualarSchool = async (filters, userId, schoolId) => {
-  const teacherId = userId;
 
   try {
-    const matchCriteria = { teacherId };
+    const matchCriteria = {};
 
     if (filters.grade && filters.grade.trim() !== "") {
       matchCriteria.grade = { $regex: filters.grade, $options: "i" };
