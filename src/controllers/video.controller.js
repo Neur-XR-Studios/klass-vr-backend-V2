@@ -49,6 +49,11 @@ const getTags = catchAsync(async (req, res) => {
   res.send(tags);
 });
 
+const finalize = catchAsync(async (req, res) => {
+  const video = await videoService.finalizeVideo(req.body, req.user);
+  res.status(httpStatus.CREATED).send(video);
+});
+
 module.exports = {
   createVideo,
   getVideos,
@@ -57,4 +62,5 @@ module.exports = {
   deleteVideo,
   getAllTags,
   getTags,
+  finalize,
 };

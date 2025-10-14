@@ -22,6 +22,7 @@ const imageRoute = require("./image360.route");
 const dashboardRoute = require("./dashboard.route");
 const simulationRoute = require("./simulation.route");
 const config = require("../../config/config");
+const uploadRoute = require("./upload.route");
 
 const router = express.Router();
 
@@ -109,6 +110,10 @@ const defaultRoutes = [
   {
     path: "/simulations",
     route: simulationRoute,
+  },
+  {
+    path: "/uploads",
+    route: uploadRoute,
   },
 ];
 

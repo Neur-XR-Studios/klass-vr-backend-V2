@@ -27,6 +27,13 @@ router
   );
 
 router
+  .route("/finalize")
+  .post(
+    auth("manageVideos"),
+    videoController.finalize
+  );
+
+router
   .route("/:videoId")
   .get(
     auth("manageVideos"),

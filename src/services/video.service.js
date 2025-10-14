@@ -1,7 +1,9 @@
 require("dotenv");
 const fs = require("fs");
 const ffmpeg = require("fluent-ffmpeg");
-ffmpeg.setFfprobePath(process.env.FFPROBE_PATH);
+if (process.env.FFPROBE_PATH) {
+  ffmpeg.setFfprobePath(process.env.FFPROBE_PATH);
+}
 const tmp = require("tmp");
 const path = require("path");
 const httpStatus = require("http-status");
@@ -9,6 +11,10 @@ const { Video, User } = require("../models");
 const ApiError = require("../utils/ApiError");
 const { uploadToS3, deleteFileFromS3 } = require("../utils/multer");
 const { v4: uuidv4 } = require("uuid");
+const aws = require("aws-sdk");
+const config = require("../config/config");
+const s3 = new aws.S3(config.aws);
+const bucketName = "klass-vr-file";
 
 /**
  * Create a video
@@ -260,3 +266,96 @@ module.exports = {
   getAllTags,
   getTags,
 };
+
+/**
+ * Finalize a direct-to-S3 uploaded video by reading from S3, extracting metadata and thumbnail, and saving DB record.
+ * @param {Object} payload - { key, title, description, tags[], typeOfVideo }
+ * @param {Object} user - req.user
+ */
+async function finalizeVideo(payload, user) {
+  const startTime = Date.now();
+  const { key, title, description, tags, typeOfVideo } = payload;
+
+  // Construct public URL (assuming public bucket or CloudFront not used here)
+  const region = config.aws.region;
+  const videoURL = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
+
+  // Create temp file from S3 object
+  const temp = await new Promise((resolve, reject) => {
+    tmp.file({ postfix: ".mp4" }, (err, path, fd, cleanupCallback) => {
+      if (err) return reject(err);
+      resolve({ path, cleanupCallback });
+    });
+  });
+
+  await new Promise((resolve, reject) => {
+    const read = s3.getObject({ Bucket: bucketName, Key: key }).createReadStream();
+    const write = fs.createWriteStream(temp.path);
+    read.on("error", reject);
+    write.on("error", reject);
+    write.on("close", resolve);
+    read.pipe(write);
+  });
+
+  try {
+    const metaData = await new Promise((resolve, reject) => {
+      ffmpeg.ffprobe(temp.path, (err, metadata) => (err ? reject(err) : resolve(metadata)));
+    });
+
+    const videoStream = metaData.streams.find((s) => s.codec_type === "video");
+    const audioStream = metaData.streams.find((s) => s.codec_type === "audio");
+    if (!videoStream) throw new Error("No video stream found in the file");
+
+    // Generate thumbnail
+    const thumbnailPath = path.join(__dirname, "..", "temp", `thumbnail_${uuidv4()}.jpg`);
+    await new Promise((resolve, reject) => {
+      ffmpeg(temp.path)
+        .on("end", resolve)
+        .on("error", reject)
+        .screenshots({ count: 1, folder: path.dirname(thumbnailPath), filename: path.basename(thumbnailPath), timestamps: ["50%"] });
+    });
+
+    const thumbnailBuffer = fs.readFileSync(thumbnailPath);
+    const thumbnailUrl = await uploadToS3(
+      { buffer: thumbnailBuffer, format: path.extname(thumbnailPath), originalname: path.basename(thumbnailPath) },
+      "thumbnails"
+    );
+
+    fs.unlinkSync(thumbnailPath);
+
+    let audioInformation = "No audio";
+    if (audioStream) {
+      audioInformation = `${audioStream.codec_long_name || audioStream.codec_name || "Unknown"}, ${audioStream.sample_rate || "Unknown"}Hz, ${audioStream.channels || "Unknown"} channels`;
+    }
+
+    const video = new Video({
+      videoURL,
+      resolution: `${videoStream.width}x${videoStream.height}`,
+      frameRate: videoStream.r_frame_rate,
+      bitrate: videoStream.bit_rate,
+      codec: videoStream.codec_name,
+      aspectRatio: videoStream.display_aspect_ratio,
+      audioInformation,
+      fileSize: metaData.format.size,
+      createdBy: user._id,
+      title,
+      description,
+      tags,
+      duration: metaData.format.duration,
+      format: ".mp4",
+      thumbnail: thumbnailUrl,
+      typeOfVideo,
+      userRole: user.role,
+    });
+
+    const saved = await video.save();
+    return saved;
+  } finally {
+    // cleanup temp file
+    try {
+      fs.unlinkSync(temp.path);
+    } catch (e) {}
+  }
+}
+
+module.exports.finalizeVideo = finalizeVideo;
