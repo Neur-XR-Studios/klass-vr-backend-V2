@@ -1,4 +1,23 @@
-const { School, User, Subscription } = require("../models");
+const {
+  User,
+  Assessment,
+  Session,
+  Content,
+  LoginDetails,
+  Video,
+  Image360,
+  Model3D,
+  Device,
+  Grade,
+  Section,
+  Student,
+  ExperienceConducted,
+  ActiveAndSync,
+  Perfomance,
+  liveControl,
+  Subscription,
+  School
+} = require("../models");
 const { ObjectId } = require("mongoose").Types;
 const { emailService } = require("../services");
 
@@ -304,20 +323,40 @@ const updateSchoolById = async (schoolId, updateBody) => {
   }
 };
 
-/**
- * Delete school by id
- * @param {ObjectId} schoolId
- * @returns {Promise<School>}
- */
 const deleteSchoolById = async (schoolId) => {
-  await User.deleteMany({ schoolId });
   const school = await getSchoolById(schoolId);
-  await School.findByIdAndDelete(schoolId);
   if (!school) {
     throw new Error("School not found");
   }
-};
 
+  // Delete Users in the school
+  const users = await User.find({ schoolId });
+  const userIds = users.map((u) => u._id);
+
+  // Delete dependent data created by users
+  await Promise.all([
+    Assessment.deleteMany({ $or: [{ schoolId }, { createdBy: { $in: userIds } }] }),
+    Session.deleteMany({ schoolId }),
+    Content.deleteMany({ schoolId }),
+    LoginDetails.deleteMany({ userId: { $in: userIds } }),
+    Video.deleteMany({ createdBy: { $in: userIds } }),
+    Image360.deleteMany({ createdBy: { $in: userIds } }),
+    Model3D.deleteMany({ createdBy: { $in: userIds } }),
+    Device.deleteMany({ schoolID: schoolId }),
+    Grade.deleteMany({ schoolId }),
+    Section.deleteMany({ schoolId }),
+    Student.deleteMany({ schoolId }),
+    ExperienceConducted.deleteMany({ schoolID: schoolId }),
+    ActiveAndSync.deleteMany({ schoolId }),
+    Perfomance.deleteMany({ schoolId }),
+    liveControl.deleteMany({ schoolId }),
+    Subscription.deleteMany({ schoolId }),
+    User.deleteMany({ schoolId }),
+  ]);
+
+  // Delete school
+  await School.findByIdAndDelete(schoolId);
+};
 module.exports = {
   createSchool,
   querySchools,

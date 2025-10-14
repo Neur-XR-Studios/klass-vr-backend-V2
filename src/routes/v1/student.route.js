@@ -64,6 +64,14 @@ router
     studentController.searchStudentsBySectionAndGrade
   );
 
+router
+  .route("/performance-excel")
+  .get(
+    auth("commonPermission"),
+    studentController.generatePerformanceExcel
+  );
+
+
 module.exports = router;
 
 /**
@@ -346,3 +354,38 @@ module.exports = router;
  *       '400':
  *         $ref: '#/components/responses/BadRequest'
  */
+
+/**
+* @swagger
+* /students/performance-excel:
+*   get:
+*     summary: Download performance Excel report
+*     description: Generates an Excel report of student performance including most failed questions per session
+*     tags: [Students]
+*     security:
+*       - bearerAuth: []
+*     parameters:
+*       - in: query
+*         name: sectionId
+*         required: true
+*         schema:
+*           type: string
+*         description: ID of the section
+*       - in: query
+*         name: gradeId
+*         required: true
+*         schema:
+*           type: string
+*         description: ID of the grade
+*     responses:
+*       200:
+*         description: Excel file downloaded successfully
+*         content:
+*           application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+*             schema:
+*               type: string
+*               format: binary
+*       500:
+*         description: Server error during download
+*/
+

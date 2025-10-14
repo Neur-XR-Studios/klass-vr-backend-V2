@@ -124,6 +124,21 @@ const updateModelById = async (modelId, updateData) => {
 
 const queryModels = async (filter, options) => {
   filter.userRole = "repoManager";
+
+  // Handle modelName search BEFORE calling paginate
+  if (filter.modelName) {
+    const searchRegex = new RegExp(filter.modelName, "i"); // Case-insensitive search
+
+    // Remove modelName from filter and add $or condition
+    delete filter.modelName;
+    filter.$or = [
+      { modelName: { $regex: searchRegex } }, // Search in model's title field
+      { tags: { $regex: searchRegex } }, // Search in comma-separated tags string
+      { tags: { $in: [searchRegex] } }, // Search in array elements (for single values)
+    ];
+  }
+
+  // Now call paginate with the modified filter
   const models = await Model3D.paginate(filter, options);
   return models;
 };

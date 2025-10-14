@@ -220,11 +220,12 @@ const filterOption = async (filters, schoolId) => {
   }
 };
 
-const queryUserSessions = async (filters, userId) => {
+const queryUserSessions = async (filters, userId, schoolIds) => {
   const teacherId = userId;
+  const schoolId = schoolIds;
 
   try {
-    const matchCriteria = { teacherId };
+    const matchCriteria = { teacherId, schoolId };
 
     if (filters.grade !== undefined && filters.grade.trim() !== "") {
       matchCriteria.grade = { $regex: filters.grade, $options: "i" };
@@ -238,6 +239,30 @@ const queryUserSessions = async (filters, userId) => {
     return result;
   } catch (error) {
     console.error("Error in queryUserSessions:", error);
+    throw error;
+  }
+};
+
+const queryUsersFromParticualarSchool = async (filters, userId, schoolId) => {
+  try {
+    const matchCriteria = { schoolId };
+
+    if (filters.grade && filters.grade.trim() !== "") {
+      matchCriteria.grade = { $regex: filters.grade, $options: "i" };
+    }
+
+    if (filters.subject && filters.subject.trim() !== "") {
+      matchCriteria.subject = { $regex: filters.subject, $options: "i" };
+    }
+
+    if (schoolId && mongoose.Types.ObjectId.isValid(schoolId)) {
+      matchCriteria.schoolId = schoolId;
+    }
+
+    const result = await Session.find(matchCriteria);
+    return result;
+  } catch (error) {
+    console.error("Error in queryUsersFromParticualarSchool:", error);
     throw error;
   }
 };
@@ -379,4 +404,5 @@ module.exports = {
   queryUserSessions,
   getSessionsWithDrafts,
   getConflictingSession,
+  queryUsersFromParticualarSchool,
 };

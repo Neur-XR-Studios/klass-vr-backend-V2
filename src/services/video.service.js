@@ -57,6 +57,14 @@ const createVideo = async (videoBody) => {
               Date.now() - startTime
             );
 
+            // Find video and audio streams
+            const videoStream = metaData.streams.find(s => s.codec_type === 'video');
+            const audioStream = metaData.streams.find(s => s.codec_type === 'audio');
+
+            if (!videoStream) {
+              throw new Error("No video stream found in the file");
+            }
+
             // Generate a thumbnail
             const thumbnailPath = path.join(
               __dirname,
@@ -99,14 +107,20 @@ const createVideo = async (videoBody) => {
 
             fs.unlinkSync(thumbnailPath); // Delete the temporary thumbnail file
 
+            // Build audio information string if audio stream exists
+            let audioInformation = "No audio";
+            if (audioStream) {
+              audioInformation = `${audioStream.codec_long_name || audioStream.codec_name || 'Unknown'}, ${audioStream.sample_rate || 'Unknown'}Hz, ${audioStream.channels || 'Unknown'} channels`;
+            }
+
             const video = new Video({
               videoURL: updatedFiles,
-              resolution: `${metaData.streams[0].width}x${metaData.streams[0].height}`,
-              frameRate: metaData.streams[0].r_frame_rate,
-              bitrate: metaData.streams[0].bit_rate,
-              codec: metaData.streams[0].codec_name,
-              aspectRatio: metaData.streams[0].display_aspect_ratio,
-              audioInformation: `${metaData.streams[1].codec_long_name}, ${metaData.streams[1].sample_rate}Hz, ${metaData.streams[1].channels} channels`,
+              resolution: `${videoStream.width}x${videoStream.height}`,
+              frameRate: videoStream.r_frame_rate,
+              bitrate: videoStream.bit_rate,
+              codec: videoStream.codec_name,
+              aspectRatio: videoStream.display_aspect_ratio,
+              audioInformation: audioInformation,
               fileSize: videoFile.size,
               createdBy: videoBody.user._id,
               title,
@@ -163,6 +177,19 @@ async function updateVideoById(videoId, updateData) {
 
 const queryVideos = async (filter, options) => {
   filter.userRole = "repoManager";
+
+  // When title parameter is provided, search in both title field and tags field
+  if (filter.title) {
+    const searchRegex = new RegExp(filter.title, 'i'); // Case-insensitive search
+
+    // Remove title from filter and add $or condition
+    delete filter.title;
+    filter.$or = [
+      { title: { $regex: searchRegex } },    // Search in model's title field
+      { tags: { $regex: searchRegex } }      // Search in comma-separated tags string
+    ];
+  }
+
   const videos = await Video.paginate(filter, options);
   return videos;
 };

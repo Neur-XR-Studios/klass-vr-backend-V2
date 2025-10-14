@@ -1,8 +1,10 @@
 const httpStatus = require("http-status");
-const { Student } = require("../models");
+const { Student, Perfomance, ExperienceConducted, Assessment } = require("../models");
 const ApiError = require("../utils/ApiError");
 const ExcelJS = require("exceljs");
 const XLSX = require("xlsx");
+const path = require('path');
+const fs = require('fs');
 
 /**
  * Create a student
@@ -221,6 +223,101 @@ const searchStudentsBySectionAndGrade = async (
   }
 };
 
+const generatePerformanceExcel = async (sectionId, gradeId, schoolId) => {
+  const experiences = await ExperienceConducted.find({ sectionID: sectionId, gradeID: gradeId, schoolID: schoolId });
+  const sessionIds = experiences.map((exp) => exp.sessionID);
+  const assessments = await Assessment.find({ sessionId: { $in: sessionIds } });
+
+  const assessmentsBySession = {};
+  assessments.forEach((a) => {
+    const sid = a.sessionId.toString();
+    if (!assessmentsBySession[sid]) assessmentsBySession[sid] = [];
+    assessmentsBySession[sid].push(a);
+  });
+
+  const allPerformances = await StudentPerformance.find({
+    experienceConductedID: { $in: experiences.map((e) => e._id) },
+  });
+
+  const studentIds = [...new Set(allPerformances.map((p) => p.studentID))];
+  const students = await Student.find({ _id: { $in: studentIds } });
+  const studentMap = Object.fromEntries(students.map((s) => [s._id.toString(), s.name]));
+
+  const workbook = new ExcelJS.Workbook();
+
+  for (const exp of experiences) {
+    const sheet = workbook.addWorksheet(`Session_${exp._id.toString().slice(-5)}`);
+    const sessionId = exp.sessionID.toString();
+    const sessionAssessments = assessmentsBySession[sessionId] || [];
+    const totalMarks = sessionAssessments.length;
+
+    const title = `Session ( total marks : ${totalMarks} )\ndate : ${exp.conductedDate.toISOString().split('T')[0]}`;
+    sheet.addRow([title]);
+    sheet.mergeCells('A1', String.fromCharCode(65 + 2 + totalMarks) + '1');
+    sheet.getCell('A1').alignment = { wrapText: true, horizontal: 'center', vertical: 'middle' };
+    sheet.getRow(1).height = 30;
+
+    const header = ['Sl.No', 'Student Name', ...sessionAssessments.map((_, idx) => `Q${idx + 1}`), 'Total Marks'];
+    sheet.addRow(header);
+
+    let count = 1;
+    for (const sid of studentIds) {
+      const stuName = studentMap[sid] || 'Unknown';
+      const stuPerformances = allPerformances.filter((p) =>
+        p.studentID.toString() === sid && p.experienceConductedID.equals(exp._id)
+      );
+
+      const questionScores = new Array(totalMarks).fill(0);
+      let total = 0;
+
+      if (stuPerformances.length) {
+        const answerMap = stuPerformances[0].answers || [];
+        for (let i = 0; i < totalMarks; i++) {
+          const isCorrect = answerMap[i]?.isCorrect;
+          if (isCorrect) {
+            questionScores[i] = 1;
+            total++;
+          }
+        }
+      }
+
+      sheet.addRow([count++, stuName, ...questionScores, total]);
+    }
+
+    // Analyze most failed questions
+    const failCounts = new Array(totalMarks).fill(0);
+    for (const sid of studentIds) {
+      const stuPerformances = allPerformances.filter((p) =>
+        p.studentID.toString() === sid && p.experienceConductedID.equals(exp._id)
+      );
+      if (stuPerformances.length) {
+        const answerMap = stuPerformances[0].answers || [];
+        for (let i = 0; i < totalMarks; i++) {
+          if (!answerMap[i]?.isCorrect) {
+            failCounts[i]++;
+          }
+        }
+      }
+    }
+
+    const mostFailed = failCounts
+      .map((count, idx) => ({ idx: idx + 1, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 2)
+      .map((q) => `Q${q.idx}`);
+
+    sheet.addRow([]);
+    sheet.addRow(['Most Failed Questions']);
+    sheet.addRow(mostFailed);
+  }
+
+  const tempPath = path.join(__dirname, '../temp/student_performance_report.xlsx');
+  await workbook.xlsx.writeFile(tempPath);
+  return tempPath;
+};
+
+
+
 module.exports = {
   createStudent,
   queryStudents,
@@ -230,4 +327,5 @@ module.exports = {
   exportStudentsToExcel,
   importStudentsFromExcel,
   searchStudentsBySectionAndGrade,
+  generatePerformanceExcel,
 };

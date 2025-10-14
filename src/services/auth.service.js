@@ -2,6 +2,7 @@ const httpStatus = require("http-status");
 const tokenService = require("./token.service");
 const userService = require("./user.service");
 const Token = require("../models/token.model");
+const School = require("../models/school.model");
 const ApiError = require("../utils/ApiError");
 const { tokenTypes } = require("../config/tokens");
 
@@ -13,11 +14,33 @@ const { tokenTypes } = require("../config/tokens");
  */
 const loginUserWithEmailAndPassword = async (email, password) => {
   const user = await userService.getUserByEmail(email);
+
+  // Step 1: Ensure user exists
   if (!user || !(await user.isPasswordMatch(password))) {
-    throw new ApiError(httpStatus.INTERNAL_SERVER_ERROR, "Incorrect email or password");
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'Incorrect email or password');
   }
+
+  // Step 2: Check school subscription only if user has schoolId
+  if (user.schoolId) {
+    const school = await School.findById(user.schoolId);
+    if (!school || !school.isSubscribed) {
+      throw new ApiError(
+        httpStatus.UNAUTHORIZED,
+        'Subscription ended. Please renew your school subscription.'
+      );
+    }
+
+    if (!school.isActive) {
+      throw new ApiError(
+        httpStatus.UNAUTHORIZED,
+        'School is not active. Please contact support.'
+      );
+    }
+  }
+
   return user;
 };
+
 
 /**
  * Logout

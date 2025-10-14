@@ -1,13 +1,17 @@
-const httpStatus = require('http-status');
-const ApiError = require('../utils/ApiError');
-const catchAsync = require('../utils/catchAsync');
-const { sessionService } = require('../services');
-const { Session } = require('../models');
+const httpStatus = require("http-status");
+const ApiError = require("../utils/ApiError");
+const catchAsync = require("../utils/catchAsync");
+const { sessionService } = require("../services");
+const { Session } = require("../models");
 
 const createSession = catchAsync(async (req, res) => {
   const teacherId = req.user.id;
   const schoolId = req.user.schoolId;
-  const session = await sessionService.createSession(req.body, teacherId, schoolId);
+  const session = await sessionService.createSession(
+    req.body,
+    teacherId,
+    schoolId
+  );
   res.status(httpStatus.CREATED).send(session);
 });
 
@@ -20,14 +24,17 @@ const getSession = catchAsync(async (req, res) => {
   const session = await sessionService.getSessionById(req.params.sessionId);
 
   if (!session) {
-    throw new ApiError(httpStatus.NOT_FOUND, 'Session not found');
+    throw new ApiError(httpStatus.NOT_FOUND, "Session not found");
   }
 
   res.send(session);
 });
 
 const updateSession = catchAsync(async (req, res) => {
-  const updatedSession = await sessionService.updateSessionById(req.params.sessionId, req.body);
+  const updatedSession = await sessionService.updateSessionById(
+    req.params.sessionId,
+    req.body
+  );
   res.send(updatedSession);
 });
 
@@ -44,7 +51,10 @@ const deploySession = catchAsync(async (req, res) => {
     isDeployed: true,
   });
   if (checkAllFalse.length !== 0) {
-    throw new ApiError(httpStatus.BAD_REQUEST, 'Session is already in progress. Please try again later.');
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      "Session is already in progress. Please try again later."
+    );
   }
   // const session = await sessionService.getSessionById(sessionId, schoolId);
 
@@ -53,7 +63,10 @@ const deploySession = catchAsync(async (req, res) => {
   // if (conflictingSession) {
   //   throw new Error('Another session is already scheduled for the same time or overlaps with the current session');
   // }
-  const updatedSession = await sessionService.deploySession(sessionId, schoolId);
+  const updatedSession = await sessionService.deploySession(
+    sessionId,
+    schoolId
+  );
   res.status(httpStatus.OK).send(updatedSession);
 });
 
@@ -66,8 +79,25 @@ const filterSessions = catchAsync(async (req, res) => {
 
 const queryUserSessions = catchAsync(async (req, res) => {
   const userId = req.user.id;
+  const schoolIds = req.user.schoolId;
   const filters = req.body;
-  const result = await sessionService.queryUserSessions(filters, userId);
+  const result = await sessionService.queryUserSessions(
+    filters,
+    userId,
+    schoolIds
+  );
+  res.send(result);
+});
+
+const queryUsersFromParticualarSchool = catchAsync(async (req, res) => {
+  const userId = req.user.id;
+  const schoolId = req.user.schoolId;
+  const filters = req.body;
+  const result = await sessionService.queryUsersFromParticualarSchool(
+    filters,
+    userId,
+    schoolId
+  );
   res.send(result);
 });
 
@@ -87,4 +117,5 @@ module.exports = {
   filterSessions,
   queryUserSessions,
   queryDrafts,
+  queryUsersFromParticualarSchool,
 };

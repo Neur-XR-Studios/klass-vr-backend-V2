@@ -76,6 +76,21 @@ const updateImageById = async (imageId, updateData) => {
  */
 const queryImages = async (filter, options) => {
   filter.userRole = "repoManager";
+
+  // Handle title search BEFORE calling paginate
+  if (filter.title) {
+    const searchRegex = new RegExp(filter.title, "i"); // Case-insensitive search
+
+    // Remove title from filter and add $or condition
+    delete filter.title;
+    filter.$or = [
+      { title: { $regex: searchRegex } }, // Search in model's title field
+      { tags: { $regex: searchRegex } }, // Search in comma-separated tags string
+      { tags: { $in: [searchRegex] } }, // Search in array elements (for single values)
+    ];
+  }
+
+  // Now call paginate with the modified filter
   const images = await Image360.paginate(filter, options);
   return images;
 };

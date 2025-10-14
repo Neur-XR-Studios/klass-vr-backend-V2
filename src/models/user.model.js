@@ -59,7 +59,7 @@ const userSchema = mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    profilePictureURL:{
+    profilePictureURL: {
       type: String
     }
   },

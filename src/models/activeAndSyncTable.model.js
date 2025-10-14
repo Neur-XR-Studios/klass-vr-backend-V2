@@ -37,6 +37,7 @@ const activeAndSyncTableSchema = new mongoose.Schema({
 // add plugin that converts mongoose to json
 activeAndSyncTableSchema.plugin(toJSON);
 activeAndSyncTableSchema.plugin(paginate);
+activeAndSyncTableSchema.index({ schoolId: 1, deviceId: 1 }, { unique: true });
 
 const ActiveAndSyncTable = mongoose.model('ActiveAndSyncTable', activeAndSyncTableSchema);
 

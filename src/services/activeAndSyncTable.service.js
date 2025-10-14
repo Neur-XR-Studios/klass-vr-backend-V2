@@ -19,41 +19,101 @@ const provokeActiveAndSync = async (teacherId, schoolId) => {
     const currentTime = new Date();
     const sessionIdOrMessage = await getSessionId(teacherId);
     console.log("sessionIdOrMessage :", sessionIdOrMessage);
+
     if (!(sessionIdOrMessage instanceof ObjectId)) {
       return "oops something went wrong";
     }
 
-    const activeDevices = await Device.find({
+    // ✅ Get only distinct deviceIds with additional validation
+    const uniqueDeviceIds = await Device.distinct("deviceID", {
       schoolID: schoolId,
+      deviceID: { $exists: true, $ne: null, $ne: "" } // Exclude null/empty deviceIDs
     });
 
-    for (const device of activeDevices) {
-      const existingEntry = await ActiveAndSync.findOne({
-        schoolId: device.schoolID,
-        deviceId: device.deviceID,
-      });
-
-      if (!existingEntry) {
-        await ActiveAndSync.create({
-          schoolId: device.schoolID,
-          deviceId: device.deviceID,
-          deviceStarted: currentTime,
-          lastActivity: currentTime,
-        });
-      } else {
-        existingEntry.lastActivity = currentTime;
-        await existingEntry.save();
-      }
+    if (uniqueDeviceIds.length === 0) {
+      console.log("No valid devices found for school:", schoolId);
+      return "No devices found for this school";
     }
 
-    const liveControlActive = await liveControl.create({
-      schoolId,
-    });
+    console.log(`Processing ${uniqueDeviceIds.length} unique devices for school ${schoolId}`);
 
-    console.log("Active and Sync entries provoked successfully.");
-    return "Active and Sync entries provoked successfully.";
+    // ✅ Process devices in batches for better performance (optional for large datasets)
+    const batchSize = 50;
+    for (let i = 0; i < uniqueDeviceIds.length; i += batchSize) {
+      const batch = uniqueDeviceIds.slice(i, i + batchSize);
+
+      const batchPromises = batch.map(deviceId =>
+        ActiveAndSync.findOneAndUpdate(
+          { schoolId, deviceId }, // Composite key ensures uniqueness
+          {
+            $set: {
+              lastActivity: currentTime,
+              updatedAt: currentTime // Track when record was last modified
+            },
+            $setOnInsert: {
+              deviceStarted: currentTime,
+              createdAt: currentTime // Track when record was first created
+            }
+          },
+          {
+            upsert: true,
+            new: true,
+            runValidators: true // Ensure schema validations run
+          }
+        )
+      );
+
+      await Promise.all(batchPromises);
+    }
+
+    // ✅ Ensure only one liveControl per school
+    await liveControl.findOneAndUpdate(
+      { schoolId },
+      {
+        $set: { updatedAt: currentTime },
+        $setOnInsert: {
+          schoolId,
+          createdAt: currentTime
+        }
+      },
+      { upsert: true, new: true }
+    );
+
+    console.log(`Active and Sync entries provoked successfully for ${uniqueDeviceIds.length} devices.`);
+    return `Active and Sync entries provoked successfully for ${uniqueDeviceIds.length} devices.`;
+
   } catch (error) {
     console.error("Error while provoking Active and Sync entries:", error);
+    throw error;
+  }
+};
+
+const cleanupDuplicateActiveAndSync = async (schoolId) => {
+  try {
+    const pipeline = [
+      { $match: { schoolId } },
+      {
+        $group: {
+          _id: { schoolId: "$schoolId", deviceId: "$deviceId" },
+          docs: { $push: "$_id" },
+          count: { $sum: 1 }
+        }
+      },
+      { $match: { count: { $gt: 1 } } }
+    ];
+
+    const duplicates = await ActiveAndSync.aggregate(pipeline);
+
+    for (const duplicate of duplicates) {
+      // Keep the first document, remove the rest
+      const [keep, ...remove] = duplicate.docs;
+      await ActiveAndSync.deleteMany({ _id: { $in: remove } });
+      console.log(`Removed ${remove.length} duplicate entries for device ${duplicate._id.deviceId}`);
+    }
+
+    console.log(`Cleanup completed. Found and resolved ${duplicates.length} duplicate groups.`);
+  } catch (error) {
+    console.error("Error during cleanup:", error);
     throw error;
   }
 };

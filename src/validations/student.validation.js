@@ -51,11 +51,14 @@ const validateExportStudents = {
 };
 
 const importStudents = {
-  body: Joi.object().keys({
-    gradeId: Joi.string().custom(objectId).required(),
-    sectionId: Joi.string().custom(objectId).required(),
-  }),
+  body: Joi.object()
+    .keys({
+      gradeId: Joi.string().custom(objectId).required(),
+      sectionId: Joi.string().custom(objectId).required(),
+    })
+    .unknown(true),
 };
+
 
 const searchStudents = {
   body: Joi.object().keys({

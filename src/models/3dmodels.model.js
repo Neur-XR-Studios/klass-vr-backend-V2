@@ -1,5 +1,5 @@
-const mongoose = require('mongoose');
-const { toJSON, paginate } = require('./plugins');
+const mongoose = require("mongoose");
+const { toJSON, paginate } = require("./plugins");
 
 const model3DSchema = new mongoose.Schema({
   modelName: {
@@ -25,7 +25,7 @@ const model3DSchema = new mongoose.Schema({
   },
   createdBy: {
     type: mongoose.SchemaTypes.ObjectId,
-    ref: 'User',
+    ref: "User",
     required: true,
   },
   userRole: {
@@ -38,6 +38,6 @@ const model3DSchema = new mongoose.Schema({
 });
 model3DSchema.plugin(toJSON);
 model3DSchema.plugin(paginate);
-const Model = mongoose.model('model', model3DSchema);
+const Model = mongoose.model("model", model3DSchema);
 
 module.exports = Model;

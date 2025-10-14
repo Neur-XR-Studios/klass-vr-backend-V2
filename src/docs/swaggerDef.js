@@ -18,7 +18,7 @@ const swaggerDef = {
       url: `https://44.200.7.3/v1`,
     },
     {
-      url: `https://klassdraw.com/v1`,
+      url: `https://api.klassdraw.com/v1`,
     },
   ],
 };

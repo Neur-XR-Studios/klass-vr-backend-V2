@@ -36,7 +36,7 @@ const getExperienceConductedById = async (experienceId) => {
 };
 
 /**
- * Get experience conducted by id with all belongs to
+ * Get experience conducted by id with all belongs to school
  * @param {ObjectId} experienceId
  * @returns {Promise<ExperienceConducted>}
  */

@@ -15,6 +15,9 @@ router.get(
   '/',
   swaggerUi.setup(specs, {
     explorer: true,
+    swaggerOptions: {
+      docExpansion: 'none',
+    },
   }),
 );
 

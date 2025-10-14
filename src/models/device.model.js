@@ -32,6 +32,7 @@ const deviceSchema = mongoose.Schema({
 
 // Create a compound unique index on deviceID and schoolID
 deviceSchema.index({ deviceID: 1, schoolID: 1 }, { unique: true });
+deviceSchema.index({ schoolID: 1, uniqueID: 1 }, { unique: true });
 
 /**
  * @typedef Device
