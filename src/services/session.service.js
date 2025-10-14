@@ -405,4 +405,5 @@ module.exports = {
   getSessionsWithDrafts,
   getConflictingSession,
   queryUsersFromParticualarSchool,
+  queryUsersFromParticualarSchool,
 };
