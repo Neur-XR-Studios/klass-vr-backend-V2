@@ -19,6 +19,9 @@ const subscriptionCronJob = require('./subscriptionCronJobs');
 
 const app = express();
 
+// Behind a reverse proxy (Nginx/ALB), enable trust proxy so X-Forwarded-* are honored
+app.set('trust proxy', process.env.TRUST_PROXY || true);
+
 if (config.env !== 'test') {
   app.use(morgan.successHandler);
   app.use(morgan.errorHandler);

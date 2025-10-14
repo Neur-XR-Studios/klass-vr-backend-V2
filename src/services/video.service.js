@@ -279,27 +279,12 @@ async function finalizeVideo(payload, user) {
   // Construct public URL (assuming public bucket or CloudFront not used here)
   const region = config.aws.region;
   const videoURL = `https://${bucketName}.s3.${region}.amazonaws.com/${key}`;
-
-  // Create temp file from S3 object
-  const temp = await new Promise((resolve, reject) => {
-    tmp.file({ postfix: ".mp4" }, (err, path, fd, cleanupCallback) => {
-      if (err) return reject(err);
-      resolve({ path, cleanupCallback });
-    });
-  });
-
-  await new Promise((resolve, reject) => {
-    const read = s3.getObject({ Bucket: bucketName, Key: key }).createReadStream();
-    const write = fs.createWriteStream(temp.path);
-    read.on("error", reject);
-    write.on("error", reject);
-    write.on("close", resolve);
-    read.pipe(write);
-  });
+  // Generate a short-lived signed URL for reading the video directly from S3
+  const signedReadUrl = s3.getSignedUrl('getObject', { Bucket: bucketName, Key: key, Expires: 300 });
 
   try {
     const metaData = await new Promise((resolve, reject) => {
-      ffmpeg.ffprobe(temp.path, (err, metadata) => (err ? reject(err) : resolve(metadata)));
+      ffmpeg.ffprobe(signedReadUrl, (err, metadata) => (err ? reject(err) : resolve(metadata)));
     });
 
     const videoStream = metaData.streams.find((s) => s.codec_type === "video");
@@ -307,9 +292,11 @@ async function finalizeVideo(payload, user) {
     if (!videoStream) throw new Error("No video stream found in the file");
 
     // Generate thumbnail
-    const thumbnailPath = path.join(__dirname, "..", "temp", `thumbnail_${uuidv4()}.jpg`);
+    const tempDir = path.join(__dirname, "..", "temp");
+    try { fs.mkdirSync(tempDir, { recursive: true }); } catch (e) {}
+    const thumbnailPath = path.join(tempDir, `thumbnail_${uuidv4()}.jpg`);
     await new Promise((resolve, reject) => {
-      ffmpeg(temp.path)
+      ffmpeg(signedReadUrl)
         .on("end", resolve)
         .on("error", reject)
         .screenshots({ count: 1, folder: path.dirname(thumbnailPath), filename: path.basename(thumbnailPath), timestamps: ["50%"] });
@@ -351,10 +338,7 @@ async function finalizeVideo(payload, user) {
     const saved = await video.save();
     return saved;
   } finally {
-    // cleanup temp file
-    try {
-      fs.unlinkSync(temp.path);
-    } catch (e) {}
+    // no large temp video file to cleanup
   }
 }
 
