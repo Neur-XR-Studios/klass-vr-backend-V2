@@ -29,7 +29,7 @@ const paginate = (schema) => {
       });
       sort = sortingCriteria.join(" ");
     } else {
-      sort = "createdAt";
+      sort = "-createdAt"; // Default to newest first (descending order)
     }
 
     const limit =

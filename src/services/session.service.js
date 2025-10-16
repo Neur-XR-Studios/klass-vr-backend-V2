@@ -87,8 +87,6 @@ const getSessionById = async (id) => {
       simulationDetails && simulationDetails.length > 0
         ? simulationDetails[0].simulationId
         : null;
-    console.log("simulationDetails :", simulationDetails);
-    console.log("simulationId :", simulationId);
     if (videoId) {
       const videoDetail = await Video.findOne({ _id: videoId });
       // Assuming videoDetails is an array and adding details to the first element
