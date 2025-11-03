@@ -1,5 +1,6 @@
 const { Session, Content, Assessment, Device } = require("../models");
 const catchAsync = require("../utils/catchAsync");
+const { resolveYouTubePlayable } = require("../services/youtube.service");
 
 const getDeployedSessionsWithAssessmentsAndContents = catchAsync(
   async (req, res) => {
@@ -19,21 +20,35 @@ const getDeployedSessionsWithAssessmentsAndContents = catchAsync(
           .populate("imageDetails.ImageId")
           .populate("simulationDetails.simulationId");
 
-        const coordinatesDecode = contents.map((content) => {
-          const updatedContent = content.toObject();
-          updatedContent.modelDetails.forEach((modelDetail) => {
-            if (modelDetail.modelCoordinates) {
+        const coordinatesDecode = await Promise.all(
+          contents.map(async (content) => {
+            const updatedContent = content.toObject();
+            updatedContent.modelDetails.forEach((modelDetail) => {
+              if (modelDetail.modelCoordinates) {
+                try {
+                  modelDetail.modelCoordinates = JSON.parse(
+                    modelDetail.modelCoordinates
+                  );
+                } catch (error) {
+                  console.error("Error parsing modelCoordinates:", error);
+                }
+              }
+            });
+
+            if (updatedContent.youTubeUrl) {
               try {
-                modelDetail.modelCoordinates = JSON.parse(
-                  modelDetail.modelCoordinates
+                const resolved = await resolveYouTubePlayable(
+                  updatedContent.youTubeUrl
                 );
-              } catch (error) {
-                console.error("Error parsing modelCoordinates:", error);
+                updatedContent.youTubeResolved = resolved || null;
+              } catch (e) {
+                updatedContent.youTubeResolved = null;
               }
             }
-          });
-          return updatedContent;
-        });
+
+            return updatedContent;
+          })
+        );
 
         return {
           session: {
@@ -58,6 +73,7 @@ const getDeployedSessionsWithAssessmentsAndContents = catchAsync(
       })
     );
 
+    res.set("Cache-Control", "no-store");
     res.send(sessionsWithAssessmentsAndContents);
   }
 );

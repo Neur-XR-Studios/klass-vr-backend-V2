@@ -59,6 +59,9 @@ if (config.env === 'production') {
 // uploads
 app.use('/static', express.static(path.join(__dirname, 'uploads/3dmodels')));
 
+// serve public files (HTML test pages, etc.)
+app.use('/public', express.static(path.join(__dirname, '..', 'public')));
+
 // Initialize cron jobs
 cron.schedule('0 0 * * *', () => {
   subscriptionCronJob();

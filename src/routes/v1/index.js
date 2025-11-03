@@ -23,6 +23,7 @@ const dashboardRoute = require("./dashboard.route");
 const simulationRoute = require("./simulation.route");
 const config = require("../../config/config");
 const uploadRoute = require("./upload.route");
+const youtubeProxyRoute = require("./youtubeProxy.route");
 
 const router = express.Router();
 
@@ -114,6 +115,10 @@ const defaultRoutes = [
   {
     path: "/uploads",
     route: uploadRoute,
+  },
+  {
+    path: "/youtube-proxy",
+    route: youtubeProxyRoute,
   },
 ];
 

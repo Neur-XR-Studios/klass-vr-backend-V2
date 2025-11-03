@@ -91,7 +91,9 @@
     "ws": "^8.16.0",
     "xlsx": "^0.18.5",
     "xlsx-style": "^0.8.13",
-    "xss-clean": "^0.1.1"
+    "xss-clean": "^0.1.1",
+    "@distube/ytdl-core": "^4.14.4",
+    "ytdl-core": "^4.11.5"
   },
   "devDependencies": {
     "@faker-js/faker": "^8.3.1",
