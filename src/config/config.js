@@ -26,6 +26,9 @@ const envVarsSchema = Joi.object()
     AWS_ACCESS_KEY_ID: Joi.string().required().description('AWS Access Key ID'),
     AWS_SECRET_ACCESS_KEY: Joi.string().required().description('AWS Secret Access Key'),
     AWS_REGION: Joi.string().required().description('AWS Region'),
+    YOUTUBE_COOKIE: Joi.string().allow(''),
+    YOUTUBE_IDENTITY_TOKEN: Joi.string().allow(''),
+    YOUTUBE_USER_AGENT: Joi.string().allow(''),
   })
   .unknown();
 
@@ -64,5 +67,10 @@ module.exports = {
     accessKeyId: envVars.AWS_ACCESS_KEY_ID,
     secretAccessKey: envVars.AWS_SECRET_ACCESS_KEY,
     region: envVars.AWS_REGION,
+  },
+  youtube: {
+    cookie: envVars.YOUTUBE_COOKIE || null,
+    identityToken: envVars.YOUTUBE_IDENTITY_TOKEN || null,
+    userAgent: envVars.YOUTUBE_USER_AGENT || null,
   },
 };
