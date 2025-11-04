@@ -85,25 +85,63 @@ async function resolveYouTubePlayable(url) {
     }
     
     console.log('[YouTube Resolver] Attempting to resolve:', url);
-    
-    const userAgent = (config.youtube && config.youtube.userAgent) || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-    const headers = {
-      'User-Agent': userAgent,
-      'Referer': 'https://www.youtube.com/',
-      'Origin': 'https://www.youtube.com',
-      'Accept-Language': 'en-US,en;q=0.9',
-    };
-    if (config.youtube && config.youtube.cookie) {
-      headers['Cookie'] = config.youtube.cookie;
-    }
-    if (config.youtube && config.youtube.identityToken) {
-      headers['X-YouTube-Identity-Token'] = config.youtube.identityToken;
-    }
-    const info = await ytdl.getInfo(url, {
-      requestOptions: {
-        headers
+
+    const normalizeToWatch = (u) => {
+      try {
+        const parsed = new URL(u);
+        if (parsed.hostname.includes('youtu.be')) {
+          const id = parsed.pathname.replace('/', '');
+          const query = parsed.searchParams;
+          const watch = new URL('https://www.youtube.com/watch');
+          if (id) watch.searchParams.set('v', id);
+          for (const [k, v] of query.entries()) {
+            if (k !== 'v') watch.searchParams.set(k, v);
+          }
+          return watch.toString();
+        }
+        return u;
+      } catch (_) {
+        return u;
       }
-    });
+    };
+
+    const targetUrl = normalizeToWatch(url);
+
+    const defaultUA = (config.youtube && config.youtube.userAgent) || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+    const altUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15';
+    const clientVersion = '2.20241103.00.00';
+
+    const makeHeaders = (ua) => {
+      const h = {
+        'User-Agent': ua,
+        'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.youtube.com/',
+        'Origin': 'https://www.youtube.com',
+        'X-YouTube-Client-Name': '1',
+        'X-YouTube-Client-Version': clientVersion,
+      };
+      if (config.youtube && config.youtube.cookie) h['Cookie'] = config.youtube.cookie;
+      if (config.youtube && config.youtube.identityToken) h['X-YouTube-Identity-Token'] = config.youtube.identityToken;
+      return h;
+    };
+
+    let info;
+    let lastErr;
+    const attempts = [makeHeaders(defaultUA), makeHeaders(altUA)];
+    for (let i = 0; i < attempts.length; i++) {
+      try {
+        info = await ytdl.getInfo(targetUrl, { requestOptions: { headers: attempts[i] } });
+        break;
+      } catch (e) {
+        lastErr = e;
+        const msg = (e && e.message) || '';
+        if (msg.includes('Sign in to confirm you’re not a bot')) {
+          continue;
+        }
+      }
+    }
+    if (!info) throw lastErr || new Error('Failed to fetch video info');
     
     console.log('[YouTube Resolver] Info fetched. Video title:', info.videoDetails?.title);
     const formats = info.formats || [];
