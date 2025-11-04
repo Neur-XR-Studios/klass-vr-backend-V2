@@ -80,18 +80,31 @@ async function resolveYouTubePlayable(url) {
     console.log('[YouTube Resolver] Attempting to resolve:', url);
 
     // Use yt-dlp to get video info
-    const info = await youtubedl(cacheKey, {
+    const options = {
       dumpSingleJson: true,
       noWarnings: true,
       noCheckCertificates: true,
       preferFreeFormats: true,
-      youtubeSkipDashManifest: false,
       format: 'bestvideo+bestaudio/best',
-      // Add cookies if configured
-      ...(config.youtube?.cookieFile && { cookies: config.youtube.cookieFile }),
       // User agent
       userAgent: config.youtube?.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    });
+    };
+
+    // Add cookies - REQUIRED to bypass YouTube bot detection
+    // Option 1: Use browser cookies (recommended)
+    if (config.youtube?.cookiesFromBrowser) {
+      options.cookiesFromBrowser = config.youtube.cookiesFromBrowser; // e.g., 'chrome'
+    }
+    // Option 2: Use cookies file
+    else if (config.youtube?.cookieFile) {
+      options.cookies = config.youtube.cookieFile;
+    }
+    // Option 3: Fallback - try to use Chrome cookies automatically
+    else {
+      options.cookiesFromBrowser = 'chrome';
+    }
+
+    const info = await youtubedl(cacheKey, options);
 
     console.log('[YouTube Resolver] Video resolved:', info.title);
     console.log('[YouTube Resolver] Available formats:', info.formats?.length || 0);
