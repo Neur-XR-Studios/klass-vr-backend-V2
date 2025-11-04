@@ -48,6 +48,7 @@
   ],
   "dependencies": {
     "@aws-sdk/client-s3": "^3.503.1",
+    "@distube/ytdl-core": "^4.14.4",
     "aws-sdk": "^2.1552.0",
     "axios": "^1.6.7",
     "bcryptjs": "^2.4.3",
@@ -92,7 +93,7 @@
     "xlsx": "^0.18.5",
     "xlsx-style": "^0.8.13",
     "xss-clean": "^0.1.1",
-    "@distube/ytdl-core": "^4.14.4",
+    "youtube-dl-exec": "^3.0.26",
     "ytdl-core": "^4.11.5"
   },
   "devDependencies": {
