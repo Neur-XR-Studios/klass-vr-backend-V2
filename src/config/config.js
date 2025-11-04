@@ -69,8 +69,7 @@ module.exports = {
     region: envVars.AWS_REGION,
   },
   youtube: {
-    cookie: envVars.YOUTUBE_COOKIE || null,
-    identityToken: envVars.YOUTUBE_IDENTITY_TOKEN || null,
-    userAgent: envVars.YOUTUBE_USER_AGENT || null,
+    cookie: "./youtube-cookies.txt",
+    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
   },
 };

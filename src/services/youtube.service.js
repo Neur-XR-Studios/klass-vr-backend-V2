@@ -91,17 +91,13 @@ async function resolveYouTubePlayable(url) {
     };
 
     // Add cookies - REQUIRED to bypass YouTube bot detection
-    // Option 1: Use browser cookies (recommended)
-    if (config.youtube?.cookiesFromBrowser) {
-      options.cookiesFromBrowser = config.youtube.cookiesFromBrowser; // e.g., 'chrome'
-    }
-    // Option 2: Use cookies file
-    else if (config.youtube?.cookieFile) {
+    if (config.youtube?.cookieFile) {
       options.cookies = config.youtube.cookieFile;
-    }
-    // Option 3: Fallback - try to use Chrome cookies automatically
-    else {
-      options.cookiesFromBrowser = 'chrome';
+    } else if (config.youtube?.cookiesFromBrowser) {
+      options.cookiesFromBrowser = config.youtube.cookiesFromBrowser;
+    } else {
+      console.warn('[YouTube Resolver] No cookies configured! YouTube will likely block requests.');
+      console.warn('[YouTube Resolver] Please add cookies to config.youtube.cookieFile');
     }
 
     const info = await youtubedl(cacheKey, options);
