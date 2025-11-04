@@ -29,6 +29,9 @@ const envVarsSchema = Joi.object()
     YOUTUBE_COOKIE: Joi.string().allow(''),
     YOUTUBE_IDENTITY_TOKEN: Joi.string().allow(''),
     YOUTUBE_USER_AGENT: Joi.string().allow(''),
+    YOUTUBE_COOKIE_FILE: Joi.string().allow(''),
+    YOUTUBE_USER_AGENT: Joi.string().allow(''),
+
   })
   .unknown();
 
@@ -69,7 +72,9 @@ module.exports = {
     region: envVars.AWS_REGION,
   },
   youtube: {
-    cookie: "./youtube-cookies.txt",
-    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    cookieFile: envVars.YOUTUBE_COOKIE_FILE
+      ? path.resolve(process.cwd(), envVars.YOUTUBE_COOKIE_FILE)
+      : path.resolve(process.cwd(), 'youtube-cookies.txt'),
+    userAgent: envVars.YOUTUBE_USER_AGENT || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
   },
 };
