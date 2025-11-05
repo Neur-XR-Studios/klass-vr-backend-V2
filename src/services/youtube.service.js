@@ -1,5 +1,15 @@
 const youtubedl = require('youtube-dl-exec');
 const config = require('../config/config');
+const fs = require('fs');
+const path = require('path');
+
+// Debug: Log cookie configuration on startup
+console.log('[YouTube Resolver] Startup config:', {
+  hasCookieFile: !!config.youtube?.cookieFile,
+  cookieFilePath: config.youtube?.cookieFile,
+  fileExists: config.youtube?.cookieFile ? fs.existsSync(config.youtube?.cookieFile) : false,
+  cwd: process.cwd()
+});
 
 // In-memory cache for resolved YouTube URLs (TTL: 5 hours to be safe)
 const urlCache = new Map();
