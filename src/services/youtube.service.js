@@ -1,7 +1,5 @@
 const youtubedl = require('youtube-dl-exec');
 const config = require('../config/config');
-const fs = require('fs');
-const path = require('path');
 
 // In-memory cache for resolved YouTube URLs (TTL: 5 hours to be safe)
 const urlCache = new Map();
@@ -12,7 +10,7 @@ const CACHE_TTL = 5 * 60 * 60 * 1000; // 5 hours in milliseconds
  * WARNING: Only use for testing/fallback. Not suitable for production with 30+ devices.
  */
 function generateProxiedUrl(directUrl) {
-  const baseUrl = config.env === 'development'
+  const baseUrl = config.env === 'production'
     ? 'https://api.klassdraw.com'
     : `http://localhost:${config.port}`;
   return `${baseUrl}/v1/youtube-proxy/stream?url=${encodeURIComponent(directUrl)}`;
@@ -93,37 +91,13 @@ async function resolveYouTubePlayable(url) {
     };
 
     // Add cookies - REQUIRED to bypass YouTube bot detection
-    if (config.youtube?.cookie) {
-      const cookiePath = path.isAbsolute(config.youtube.cookie)
-        ? config.youtube.cookie
-        : path.resolve(process.cwd(), config.youtube.cookie);
-      try {
-        if (fs.existsSync(cookiePath)) {
-          options.cookies = cookiePath; // absolute path to Netscape cookie file
-        } else {
-          console.warn('[YouTube Resolver] Cookie file not found at:', cookiePath);
-        }
-      } catch (e) {
-        console.warn('[YouTube Resolver] Unable to access cookie file:', cookiePath, e.message);
-      }
-    } else if (config.youtube?.cookieFile) {
-      const cookiePath = path.isAbsolute(config.youtube.cookieFile)
-        ? config.youtube.cookieFile
-        : path.resolve(process.cwd(), config.youtube.cookieFile);
-      try {
-        if (fs.existsSync(cookiePath)) {
-          options.cookies = cookiePath;
-        } else {
-          console.warn('[YouTube Resolver] Cookie file (cookieFile) not found at:', cookiePath);
-        }
-      } catch (e) {
-        console.warn('[YouTube Resolver] Unable to access cookie file (cookieFile):', cookiePath, e.message);
-      }
+    if (config.youtube?.cookieFile) {
+      options.cookies = config.youtube.cookieFile;
     } else if (config.youtube?.cookiesFromBrowser) {
       options.cookiesFromBrowser = config.youtube.cookiesFromBrowser;
     } else {
-      console.warn('[YouTube Resolver] No cookies configured! YouTube may block requests.');
-      console.warn('[YouTube Resolver] Please set config.youtube.cookie to a Netscape cookie file path (e.g. ./youtube-cookies.txt)');
+      console.warn('[YouTube Resolver] No cookies configured! YouTube will likely block requests.');
+      console.warn('[YouTube Resolver] Please add cookies to config.youtube.cookieFile');
     }
 
     const info = await youtubedl(cacheKey, options);
