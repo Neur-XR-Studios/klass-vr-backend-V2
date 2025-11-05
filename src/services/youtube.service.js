@@ -1,15 +1,5 @@
-const youtubedl = require('youtube-dl-exec');
+const axios = require('axios');
 const config = require('../config/config');
-const fs = require('fs');
-const path = require('path');
-
-// Debug: Log cookie configuration on startup
-console.log('[YouTube Resolver] Startup config:', {
-  hasCookieFile: !!config.youtube?.cookieFile,
-  cookieFilePath: config.youtube?.cookieFile,
-  fileExists: config.youtube?.cookieFile ? fs.existsSync(config.youtube?.cookieFile) : false,
-  cwd: process.cwd()
-});
 
 // In-memory cache for resolved YouTube URLs (TTL: 5 hours to be safe)
 const urlCache = new Map();
@@ -17,7 +7,6 @@ const CACHE_TTL = 5 * 60 * 60 * 1000; // 5 hours in milliseconds
 
 /**
  * Generate proxied URL to avoid 403 errors
- * WARNING: Only use for testing/fallback. Not suitable for production with 30+ devices.
  */
 function generateProxiedUrl(directUrl) {
   const baseUrl = config.env === 'production'
@@ -34,189 +23,146 @@ function cleanExpiredCache() {
   for (const [key, value] of urlCache.entries()) {
     if (now > value.expiresAt) {
       urlCache.delete(key);
-      console.log('[YouTube Resolver] Removed expired cache for:', key);
     }
   }
 }
 
-// Run cache cleanup every 30 minutes
 setInterval(cleanExpiredCache, 30 * 60 * 1000);
 
 /**
- * Normalize YouTube URL (remove tracking params)
+ * Extract video ID from YouTube URL
  */
-function normalizeYouTubeUrl(url) {
+function extractVideoId(url) {
   try {
     const parsed = new URL(url);
-
-    // Convert youtu.be to youtube.com/watch
     if (parsed.hostname.includes('youtu.be')) {
-      const videoId = parsed.pathname.replace('/', '');
-      return `https://www.youtube.com/watch?v=${videoId}`;
+      return parsed.pathname.replace('/', '');
     }
-
-    // For regular youtube.com URLs, just extract the video ID
-    const videoId = parsed.searchParams.get('v');
-    if (videoId) {
-      return `https://www.youtube.com/watch?v=${videoId}`;
-    }
-
-    return url;
+    return parsed.searchParams.get('v');
   } catch (err) {
-    return url;
+    return null;
   }
 }
 
 /**
- * Resolve a YouTube URL to a directly playable URL at the highest available quality.
- * Uses yt-dlp (via youtube-dl-exec) which is more reliable than ytdl-core.
- * 
- * @param {string} url - YouTube URL
- * @returns {Promise<Object|null>} Resolved video info with playable URLs
+ * Use YouTube's InnerTube API (Android client)
+ * This bypasses most bot detection
  */
 async function resolveYouTubePlayable(url) {
   try {
-    // Clean expired cache periodically
     if (Math.random() < 0.1) cleanExpiredCache();
 
-    // Normalize and check cache
-    const cacheKey = normalizeYouTubeUrl(url);
-    const cached = urlCache.get(cacheKey);
-    if (cached && Date.now() < cached.expiresAt) {
-      console.log('[YouTube Resolver] Returning cached result for:', cacheKey);
-      return cached.data;
-    }
-
-    console.log('[YouTube Resolver] Attempting to resolve:', url);
-
-    // Use yt-dlp to get video info
-    const options = {
-      dumpSingleJson: true,
-      noWarnings: true,
-      noCheckCertificates: true,
-      preferFreeFormats: true,
-      format: 'bestvideo+bestaudio/best',
-      userAgent: config.youtube?.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-    };
-
-    // Add cookies - REQUIRED to bypass YouTube bot detection
-    console.log('[YouTube Resolver] Cookie check:', {
-      hasCookieFile: !!config.youtube?.cookieFile,
-      cookieFilePath: config.youtube?.cookieFile,
-      hasCookiesFromBrowser: !!config.youtube?.cookiesFromBrowser
-    });
-
-    if (config.youtube?.cookieFile) {
-      const cookiePath = config.youtube.cookieFile;
-      console.log('[YouTube Resolver] Checking cookie file at:', cookiePath);
-
-      if (fs.existsSync(cookiePath)) {
-        console.log('[YouTube Resolver] ✓ Cookie file found!');
-        options.cookies = cookiePath;
-
-        // Verify file is readable and has content
-        try {
-          const content = fs.readFileSync(cookiePath, 'utf8');
-          const lines = content.split('\n').filter(l => l && !l.startsWith('#'));
-          console.log('[YouTube Resolver] Cookie file has', lines.length, 'cookie entries');
-          if (lines.length === 0) {
-            console.error('[YouTube Resolver] ✗ Cookie file is empty or only has comments!');
-          }
-        } catch (e) {
-          console.error('[YouTube Resolver] ✗ Error reading cookie file:', e.message);
-        }
-      } else {
-        console.error('[YouTube Resolver] ✗ Cookie file NOT FOUND at:', cookiePath);
-        console.error('[YouTube Resolver] Current directory:', process.cwd());
-      }
-    } else if (config.youtube?.cookiesFromBrowser) {
-      options.cookiesFromBrowser = config.youtube.cookiesFromBrowser;
-      console.log('[YouTube Resolver] Using browser cookies:', config.youtube.cookiesFromBrowser);
-    } else {
-      console.error('[YouTube Resolver] ✗ NO COOKIES CONFIGURED!');
-    }
-
-    console.log('[YouTube Resolver] Calling yt-dlp with options:', {
-      ...options,
-      cookies: options.cookies ? 'SET' : 'NOT SET'
-    });
-
-    const info = await youtubedl(cacheKey, options);
-
-    console.log('[YouTube Resolver] ✓ Video resolved:', info.title);
-    console.log('[YouTube Resolver] Available formats:', info.formats?.length || 0);
-
-    if (!info.formats || info.formats.length === 0) {
-      console.warn('[YouTube Resolver] No formats available');
+    const videoId = extractVideoId(url);
+    if (!videoId) {
+      console.error('[YouTube Resolver] Invalid YouTube URL');
       return null;
     }
 
-    // Separate formats by type
-    const formats = info.formats;
-    const muxed = formats.filter(f => f.vcodec !== 'none' && f.acodec !== 'none' && f.url);
-    const videoOnly = formats.filter(f => f.vcodec !== 'none' && f.acodec === 'none' && f.url);
-    const audioOnly = formats.filter(f => f.acodec !== 'none' && f.vcodec === 'none' && f.url);
+    const cacheKey = videoId;
+    const cached = urlCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      console.log('[YouTube Resolver] Returning cached result for:', videoId);
+      return cached.data;
+    }
 
-    console.log('[YouTube Resolver] Format breakdown - Muxed:', muxed.length, 'Video-only:', videoOnly.length, 'Audio-only:', audioOnly.length);
+    console.log('[YouTube Resolver] Attempting to resolve:', videoId);
 
-    // Sort by quality (height first, then bitrate)
+    // Use Android client - most reliable, doesn't require authentication
+    const response = await axios.post(
+      'https://www.youtube.com/youtubei/v1/player?key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w',
+      {
+        context: {
+          client: {
+            clientName: 'ANDROID',
+            clientVersion: '19.09.37',
+            androidSdkVersion: 30,
+            userAgent: 'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip',
+            hl: 'en',
+            timeZone: 'UTC',
+            utcOffsetMinutes: 0
+          }
+        },
+        videoId: videoId,
+        playbackContext: {
+          contentPlaybackContext: {
+            html5Preference: 'HTML5_PREF_WANTS'
+          }
+        },
+        contentCheckOk: true,
+        racyCheckOk: true
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'com.google.android.youtube/19.09.37 (Linux; U; Android 11) gzip',
+          'X-YouTube-Client-Name': '3',
+          'X-YouTube-Client-Version': '19.09.37'
+        }
+      }
+    );
+
+    const data = response.data;
+
+    if (!data.streamingData || !data.streamingData.formats) {
+      console.error('[YouTube Resolver] No streaming data available');
+      return null;
+    }
+
+    console.log('[YouTube Resolver] ✓ Video resolved:', data.videoDetails?.title);
+
+    const formats = [
+      ...(data.streamingData.formats || []),
+      ...(data.streamingData.adaptiveFormats || [])
+    ];
+
+    console.log('[YouTube Resolver] Found', formats.length, 'formats');
+
+    // Separate formats
+    const muxed = formats.filter(f => f.mimeType?.includes('video') && f.audioQuality);
+    const videoOnly = formats.filter(f => f.mimeType?.includes('video') && !f.audioQuality);
+    const audioOnly = formats.filter(f => f.mimeType?.includes('audio'));
+
+    console.log('[YouTube Resolver] Muxed:', muxed.length, 'Video-only:', videoOnly.length, 'Audio-only:', audioOnly.length);
+
+    // Sort by quality
     const sortByQuality = (a, b) => {
-      const heightA = a.height || 0;
-      const heightB = b.height || 0;
-      if (heightB !== heightA) return heightB - heightA;
-
-      // Prefer mp4 container
-      const scoreA = (a.ext === 'mp4' || a.video_ext === 'mp4') ? 1 : 0;
-      const scoreB = (b.ext === 'mp4' || b.video_ext === 'mp4') ? 1 : 0;
-      if (scoreB !== scoreA) return scoreB - scoreA;
-
-      // Then by bitrate
-      const bitrateA = a.tbr || a.vbr || 0;
-      const bitrateB = b.tbr || b.vbr || 0;
-      return bitrateB - bitrateA;
+      const ha = a.height || 0;
+      const hb = b.height || 0;
+      if (hb !== ha) return hb - ha;
+      const ba = a.bitrate || 0;
+      const bb = b.bitrate || 0;
+      return bb - ba;
     };
 
-    // Get best formats
     const bestMuxed = muxed.length > 0 ? muxed.sort(sortByQuality)[0] : null;
     const bestVideoOnly = videoOnly.length > 0 ? videoOnly.sort(sortByQuality)[0] : null;
     const bestAudioOnly = audioOnly.length > 0
-      ? audioOnly.sort((a, b) => (b.abr || b.tbr || 0) - (a.abr || a.tbr || 0))[0]
+      ? audioOnly.sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0))[0]
       : null;
 
-    // Prefer highest quality (usually video-only formats have better quality)
     const muxedHeight = bestMuxed?.height || 0;
     const videoOnlyHeight = bestVideoOnly?.height || 0;
-
     const chosenVideo = videoOnlyHeight >= muxedHeight ? bestVideoOnly : bestMuxed;
 
     if (!chosenVideo) {
-      console.warn('[YouTube Resolver] No suitable video format found');
+      console.error('[YouTube Resolver] No suitable format found');
       return null;
     }
 
     console.log('[YouTube Resolver] Selected format:', {
-      formatId: chosenVideo.format_id,
       quality: `${chosenVideo.height}p`,
-      ext: chosenVideo.ext,
-      hasAudio: chosenVideo.acodec !== 'none',
-      hasVideo: chosenVideo.vcodec !== 'none',
-      filesize: chosenVideo.filesize ? `${(chosenVideo.filesize / 1024 / 1024).toFixed(2)}MB` : 'unknown'
+      mimeType: chosenVideo.mimeType,
+      hasAudio: !!chosenVideo.audioQuality
     });
 
-    // Get best audio if video-only format is selected
     let audioUrl = null;
-    if (chosenVideo.acodec === 'none' && bestAudioOnly) {
+    if (!chosenVideo.audioQuality && bestAudioOnly) {
       audioUrl = bestAudioOnly.url;
-      console.log('[YouTube Resolver] Best audio format:', {
-        formatId: bestAudioOnly.format_id,
-        bitrate: bestAudioOnly.abr || bestAudioOnly.tbr
-      });
     }
 
-    // For proxy, prefer muxed format for better compatibility
     const proxyFormat = bestMuxed || chosenVideo;
 
-    // Extract expiry timestamp from URL
+    // Extract expiry
     let expiresAt = null;
     try {
       const urlParams = new URLSearchParams(chosenVideo.url.split('?')[1]);
@@ -225,45 +171,32 @@ async function resolveYouTubePlayable(url) {
         expiresAt = new Date(parseInt(expireTimestamp) * 1000).toISOString();
       }
     } catch (err) {
-      // Ignore parsing errors
+      // Ignore
     }
 
-    // Default expiry: 5 hours from now if not specified
     if (!expiresAt) {
       expiresAt = new Date(Date.now() + CACHE_TTL).toISOString();
     }
 
     const result = {
-      // RECOMMENDED: Use directUrl in VR app with proper headers
       directUrl: chosenVideo.url,
       directAudioUrl: audioUrl,
-
-      // FALLBACK: Proxied URLs (not recommended for 30+ devices)
       playableUrl: generateProxiedUrl(proxyFormat.url),
       audioUrl: audioUrl ? generateProxiedUrl(audioUrl) : null,
-
-      // HLS/DASH manifest URLs (best for streaming)
-      hlsManifestUrl: info.manifest_url || null,
-      dashManifestUrl: null, // yt-dlp doesn't provide DASH separately
-
-      // Quality info
+      hlsManifestUrl: data.streamingData.hlsManifestUrl || null,
+      dashManifestUrl: data.streamingData.dashManifestUrl || null,
       qualityHeight: chosenVideo.height,
-      qualityLabel: `${chosenVideo.height}p`,
-      itag: chosenVideo.format_id,
-      mimeType: `${chosenVideo.video_ext || chosenVideo.ext}/mp4`,
-      hasAudio: chosenVideo.acodec !== 'none',
-      hasVideo: chosenVideo.vcodec !== 'none',
-      isVideoOnly: chosenVideo.acodec === 'none',
-
-      // Proxy format info
+      qualityLabel: chosenVideo.qualityLabel || `${chosenVideo.height}p`,
+      itag: chosenVideo.itag,
+      mimeType: chosenVideo.mimeType,
+      hasAudio: !!chosenVideo.audioQuality,
+      hasVideo: !!chosenVideo.height,
+      isVideoOnly: !chosenVideo.audioQuality,
       proxyQualityHeight: proxyFormat.height,
-      proxyQualityLabel: `${proxyFormat.height}p`,
-      proxyHasAudio: proxyFormat.acodec !== 'none',
-
+      proxyQualityLabel: proxyFormat.qualityLabel || `${proxyFormat.height}p`,
+      proxyHasAudio: !!proxyFormat.audioQuality,
       expiresAt: expiresAt,
-      bitrate: chosenVideo.tbr || chosenVideo.vbr || null,
-
-      // Headers required for direct playback
+      bitrate: chosenVideo.bitrate || null,
       requiredHeaders: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': 'https://www.youtube.com/',
@@ -271,30 +204,20 @@ async function resolveYouTubePlayable(url) {
       }
     };
 
-    // Cache the result
     const cacheExpiry = new Date(expiresAt).getTime();
     urlCache.set(cacheKey, {
       data: result,
       expiresAt: cacheExpiry
     });
 
-    console.log('[YouTube Resolver] Cached result until:', expiresAt);
     console.log('[YouTube Resolver] ✓ Successfully resolved video');
-
     return result;
 
   } catch (err) {
     console.error('[YouTube Resolver] Error:', err.message);
-    console.error('[YouTube Resolver] Stack:', err.stack);
-
-    // Check for common errors
-    if (err.message.includes('Video unavailable')) {
-      console.error('[YouTube Resolver] Video is unavailable or private');
-    } else if (err.message.includes('Sign in')) {
-      console.error('[YouTube Resolver] ✗ Bot detection triggered - cookies may be invalid or expired');
-      console.error('[YouTube Resolver] Please regenerate youtube-cookies.txt from a logged-in browser');
+    if (err.response) {
+      console.error('[YouTube Resolver] Response:', err.response.status, err.response.data);
     }
-
     return null;
   }
 }
