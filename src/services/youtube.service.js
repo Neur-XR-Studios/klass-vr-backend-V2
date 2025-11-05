@@ -96,23 +96,54 @@ async function resolveYouTubePlayable(url) {
       noCheckCertificates: true,
       preferFreeFormats: true,
       format: 'bestvideo+bestaudio/best',
-      // User agent
       userAgent: config.youtube?.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     };
 
     // Add cookies - REQUIRED to bypass YouTube bot detection
+    console.log('[YouTube Resolver] Cookie check:', {
+      hasCookieFile: !!config.youtube?.cookieFile,
+      cookieFilePath: config.youtube?.cookieFile,
+      hasCookiesFromBrowser: !!config.youtube?.cookiesFromBrowser
+    });
+
     if (config.youtube?.cookieFile) {
-      options.cookies = config.youtube.cookieFile;
+      const cookiePath = config.youtube.cookieFile;
+      console.log('[YouTube Resolver] Checking cookie file at:', cookiePath);
+
+      if (fs.existsSync(cookiePath)) {
+        console.log('[YouTube Resolver] ✓ Cookie file found!');
+        options.cookies = cookiePath;
+
+        // Verify file is readable and has content
+        try {
+          const content = fs.readFileSync(cookiePath, 'utf8');
+          const lines = content.split('\n').filter(l => l && !l.startsWith('#'));
+          console.log('[YouTube Resolver] Cookie file has', lines.length, 'cookie entries');
+          if (lines.length === 0) {
+            console.error('[YouTube Resolver] ✗ Cookie file is empty or only has comments!');
+          }
+        } catch (e) {
+          console.error('[YouTube Resolver] ✗ Error reading cookie file:', e.message);
+        }
+      } else {
+        console.error('[YouTube Resolver] ✗ Cookie file NOT FOUND at:', cookiePath);
+        console.error('[YouTube Resolver] Current directory:', process.cwd());
+      }
     } else if (config.youtube?.cookiesFromBrowser) {
       options.cookiesFromBrowser = config.youtube.cookiesFromBrowser;
+      console.log('[YouTube Resolver] Using browser cookies:', config.youtube.cookiesFromBrowser);
     } else {
-      console.warn('[YouTube Resolver] No cookies configured! YouTube will likely block requests.');
-      console.warn('[YouTube Resolver] Please add cookies to config.youtube.cookieFile');
+      console.error('[YouTube Resolver] ✗ NO COOKIES CONFIGURED!');
     }
+
+    console.log('[YouTube Resolver] Calling yt-dlp with options:', {
+      ...options,
+      cookies: options.cookies ? 'SET' : 'NOT SET'
+    });
 
     const info = await youtubedl(cacheKey, options);
 
-    console.log('[YouTube Resolver] Video resolved:', info.title);
+    console.log('[YouTube Resolver] ✓ Video resolved:', info.title);
     console.log('[YouTube Resolver] Available formats:', info.formats?.length || 0);
 
     if (!info.formats || info.formats.length === 0) {
@@ -260,7 +291,8 @@ async function resolveYouTubePlayable(url) {
     if (err.message.includes('Video unavailable')) {
       console.error('[YouTube Resolver] Video is unavailable or private');
     } else if (err.message.includes('Sign in')) {
-      console.error('[YouTube Resolver] Bot detection - consider adding cookies');
+      console.error('[YouTube Resolver] ✗ Bot detection triggered - cookies may be invalid or expired');
+      console.error('[YouTube Resolver] Please regenerate youtube-cookies.txt from a logged-in browser');
     }
 
     return null;
