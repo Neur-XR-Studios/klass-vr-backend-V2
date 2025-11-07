@@ -57,13 +57,16 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
   const outputTemplate = path.join(DOWNLOADS_DIR, `${contentId}_${videoId}.mp4`);
   
   // yt-dlp arguments for best quality with merging
+  // Prioritize 4K (2160p) -> 1440p -> 1080p -> best available
+  // Removes mp4/m4a restriction to allow VP9/WebM which YouTube uses for 4K
   const args = [
-    '--format', 'bestvideo[ext=mp4][height<=2160]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
+    '--format', 'bestvideo[height<=2160]+bestaudio/bestvideo[height<=1440]+bestaudio/bestvideo+bestaudio/best',
     '--merge-output-format', 'mp4',
     '--output', outputTemplate,
     '--no-playlist',
     '--no-warnings',
     '--progress',
+    '--verbose', // Show format selection details
   ];
 
   // Add cookie support to avoid bot detection

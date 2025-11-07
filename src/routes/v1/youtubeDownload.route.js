@@ -50,7 +50,7 @@ router.get('/queue', auth('commonPermission'), youtubeDownloadController.getQueu
  *               contentId: "507f1f77bcf86cd799439011"
  *               youTubeUrl: "https://youtu.be/nV_hd6bLXmw"
  *               downloadStatus: "completed"
- *               downloadedUrl: "https://klass-vr-videos.s3.us-east-1.amazonaws.com/youtube-videos/..."
+ *               downloadedUrl: "https://klass-vr-file.s3.us-east-1.amazonaws.com/youtube-videos/..."
  *               progress: 100
  *               error: null
  */

@@ -12,8 +12,8 @@ const s3Client = new S3Client({
   },
 });
 
-// S3 bucket name
-const S3_BUCKET = config.aws.s3Bucket;
+// S3 bucket name - same as video.service.js
+const S3_BUCKET = 'klass-vr-file';
 
 /**
  * Upload file to S3
