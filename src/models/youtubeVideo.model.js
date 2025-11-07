@@ -121,10 +121,8 @@ youtubeVideoSchema.plugin(AutoIncrement, {
   start_seq: 1,
 });
 
-// Index for efficient queries
+// Index for efficient queries (videoId and youTubeUrl already indexed via field definitions)
 youtubeVideoSchema.index({ downloadStatus: 1, createdAt: -1 });
-youtubeVideoSchema.index({ videoId: 1 });
-youtubeVideoSchema.index({ youTubeUrl: 1 });
 
 // Static method to find or create by URL
 youtubeVideoSchema.statics.findOrCreateByUrl = async function(youTubeUrl) {
