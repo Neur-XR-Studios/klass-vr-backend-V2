@@ -86,6 +86,22 @@ const contentSchema = new mongoose.Schema(
     youTubeVideoScript: { type: String },
     youTubeStartTimer: { type: String },
     youTubeEndTimer: { type: String },
+    // YouTube download status fields
+    youTubeDownloadStatus: {
+      type: String,
+      enum: ['pending', 'downloading', 'downloaded', 'uploading', 'completed', 'failed'],
+      default: 'pending',
+    },
+    youTubeDownloadedUrl: {
+      type: String, // S3 URL of downloaded video
+    },
+    youTubeDownloadProgress: {
+      type: Number,
+      default: 0, // 0-100
+    },
+    youTubeDownloadError: {
+      type: String,
+    },
     language: {
       type: String,
       enum: ["arabic", "spanish", "english"],

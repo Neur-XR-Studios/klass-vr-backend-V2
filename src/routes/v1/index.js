@@ -24,6 +24,7 @@ const simulationRoute = require("./simulation.route");
 const config = require("../../config/config");
 const uploadRoute = require("./upload.route");
 const youtubeProxyRoute = require("./youtubeProxy.route");
+const youtubeDownloadRoute = require("./youtubeDownload.route");
 
 const router = express.Router();
 
@@ -119,6 +120,10 @@ const defaultRoutes = [
   {
     path: "/youtube-proxy",
     route: youtubeProxyRoute,
+  },
+  {
+    path: "/youtube-download",
+    route: youtubeDownloadRoute,
   },
 ];
 

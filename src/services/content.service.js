@@ -2,6 +2,7 @@ const httpStatus = require("http-status");
 const { Content } = require("../models");
 const { sessionService } = require(".");
 const ApiError = require("../utils/ApiError");
+const { queueYouTubeDownload } = require("./jobQueue.service");
 
 /**
  * Create a new content entry
@@ -53,6 +54,12 @@ const createContent = async (body, userId) => {
     });
 
     const savedContent = await content.save();
+
+    // Queue YouTube download if URL is provided
+    if (youTubeUrl && youTubeUrl.trim()) {
+      console.log('[Content Service] Queueing YouTube download for content:', savedContent._id);
+      queueYouTubeDownload(savedContent._id.toString());
+    }
 
     return savedContent;
   } catch (error) {
@@ -207,6 +214,12 @@ const updateContentById = async (contentId, updateBody) => {
 
       if (!updatedContent) {
         throw new Error("Content not found");
+      }
+
+      // Queue YouTube download if URL is changed/added
+      if (youTubeUrl && youTubeUrl.trim()) {
+        console.log('[Content Service] Queueing YouTube download for content:', contentId);
+        queueYouTubeDownload(contentId);
       }
 
       return updatedContent;

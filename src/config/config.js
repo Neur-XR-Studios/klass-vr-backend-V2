@@ -26,6 +26,7 @@ const envVarsSchema = Joi.object()
     AWS_ACCESS_KEY_ID: Joi.string().required().description('AWS Access Key ID'),
     AWS_SECRET_ACCESS_KEY: Joi.string().required().description('AWS Secret Access Key'),
     AWS_REGION: Joi.string().required().description('AWS Region'),
+    AWS_S3_BUCKET: Joi.string().default('klass-vr-videos').description('AWS S3 Bucket for videos'),
     YOUTUBE_COOKIE: Joi.string().allow(''),
     YOUTUBE_IDENTITY_TOKEN: Joi.string().allow(''),
     YOUTUBE_USER_AGENT: Joi.string().allow(''),
@@ -70,6 +71,7 @@ module.exports = {
     accessKeyId: envVars.AWS_ACCESS_KEY_ID,
     secretAccessKey: envVars.AWS_SECRET_ACCESS_KEY,
     region: envVars.AWS_REGION,
+    s3Bucket: envVars.AWS_S3_BUCKET,
   },
   youtube: {
     cookieFile: envVars.YOUTUBE_COOKIE_FILE
