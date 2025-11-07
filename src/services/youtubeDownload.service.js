@@ -56,15 +56,13 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
 
   const outputTemplate = path.join(DOWNLOADS_DIR, `${contentId}_${videoId}.mp4`);
   
-  // yt-dlp arguments for STRICT 4K download with ffmpeg merging
-  // Downloads best video (4K) + best audio, merges with ffmpeg into MP4
+  // yt-dlp arguments - Download 1080p with ffmpeg merging
   const args = [
-    '--format', '(bestvideo[height>=2160][ext=mp4]/bestvideo[height>=2160])+(bestaudio[ext=m4a]/bestaudio)/best',
+    '--format', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]',
     '--merge-output-format', 'mp4',
     '--output', outputTemplate,
     '--no-playlist',
-    '--progress',
-    '--verbose',  // Show format selection
+    '--no-warnings',
   ];
 
   // Add cookie support to avoid bot detection
@@ -101,15 +99,6 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       console.log('[YouTube Download] Output:', stdout.trim());
     }
     
-    if (stderr && stderr.trim()) {
-      // Look for format selection in stderr
-      const formatMatch = stderr.match(/\[info\].*?(\d{3,4})p.*?(\d+\.\d+MiB)/i) || 
-                         stderr.match(/format.*?(\d{3,4})x(\d{3,4})/i);
-      if (formatMatch) {
-        console.log('[YouTube Download] Format detected:', formatMatch[0]);
-      }
-    }
-
     console.log('[YouTube Download] ✓ Download complete:', outputTemplate);
 
     // Check if file exists
@@ -117,19 +106,10 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       throw new Error('Downloaded file not found');
     }
 
-    // Get file size and estimate quality
+    // Get file size
     const stats = fs.statSync(outputTemplate);
     const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
     console.log('[YouTube Download] File size:', fileSizeMB, 'MB');
-    
-    // Estimate quality based on file size (rough estimate)
-    if (parseFloat(fileSizeMB) > 80) {
-      console.log('[YouTube Download] ✓ Large file size suggests 4K quality');
-    } else if (parseFloat(fileSizeMB) > 30) {
-      console.log('[YouTube Download] ✓ Medium file size suggests 1080p-1440p quality');
-    } else {
-      console.log('[YouTube Download] ⚠️ Small file size suggests 720p or lower');
-    }
 
     // Update status
     await Content.findByIdAndUpdate(contentId, {
@@ -180,33 +160,6 @@ async function getVideoMetadata(youtubeUrl) {
 }
 
 /**
- * Check if video has 4K available
- */
-async function check4KAvailable(youtubeUrl) {
-  try {
-    const metadata = await getVideoMetadata(youtubeUrl);
-    if (!metadata || !metadata.formats) {
-      return false;
-    }
-    
-    // Check if any format has height >= 2160
-    const has4K = metadata.formats.some(f => f.height && f.height >= 2160);
-    
-    if (!has4K) {
-      console.log('[YouTube 4K Check] ❌ No 4K formats available for:', youtubeUrl);
-      console.log('[YouTube 4K Check] Max resolution:', Math.max(...metadata.formats.filter(f => f.height).map(f => f.height)));
-    } else {
-      console.log('[YouTube 4K Check] ✓ 4K format available');
-    }
-    
-    return has4K;
-  } catch (error) {
-    console.error('[YouTube 4K Check] Error:', error.message);
-    return false;
-  }
-}
-
-/**
  * Complete YouTube video processing workflow
  * Downloads video, uploads to S3, updates YouTubeVideo model and Content
  * @param {string} contentId - Content document ID
@@ -248,17 +201,7 @@ async function processYouTubeVideo(contentId) {
       return youtubeVideo.s3Url;
     }
 
-    // Step 2: Check if video has 4K (log warning but continue)
-    console.log('[YouTube Processor] Checking for 4K availability...');
-    const has4K = await check4KAvailable(youtubeUrl);
-    
-    if (!has4K) {
-      console.warn('[YouTube Processor] ⚠️ Video may not have 4K. Will attempt download with best available quality.');
-    } else {
-      console.log('[YouTube Processor] ✅ 4K confirmed available, proceeding with download');
-    }
-
-    // Step 3: Create or get YouTubeVideo entry
+    // Step 2: Create or get YouTubeVideo entry
     if (!youtubeVideo) {
       youtubeVideo = await YouTubeVideo.findOrCreateByUrl(youtubeUrl);
     }
@@ -267,7 +210,7 @@ async function processYouTubeVideo(contentId) {
     youtubeVideo.downloadStartedAt = new Date();
     await youtubeVideo.save();
 
-    // Step 4: Get metadata
+    // Step 3: Get metadata
     console.log('[YouTube Processor] Fetching metadata...');
     const metadata = await getVideoMetadata(youtubeUrl);
     if (metadata) {
@@ -295,25 +238,23 @@ async function processYouTubeVideo(contentId) {
       options.endTime = content.youTubeEndTimer;
     }
 
-    // Step 5: Download video (STRICT 4K)
+    // Step 4: Download video (1080p)
     localFilePath = await downloadYouTubeVideo(youtubeUrl, contentId, options);
 
-    // Step 6: Extract format details from downloaded file
+    // Step 5: Extract format details from downloaded file
     const stats = fs.statSync(localFilePath);
     const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
     
-    // Parse format from yt-dlp output (assuming 4K since we enforced it)
     const downloadedFormat = {
-      resolution: '3840x2160',
-      height: 2160,
-      width: 3840,
+      resolution: '1920x1080',
+      height: 1080,
+      width: 1920,
       filesize: stats.size,
       filesizeMB: parseFloat(fileSizeMB),
       ext: 'mp4',
-      is4K: true,
     };
 
-    // Step 7: Upload to S3
+    // Step 6: Upload to S3
     youtubeVideo.downloadStatus = 'uploading';
     await youtubeVideo.save();
     
@@ -324,13 +265,13 @@ async function processYouTubeVideo(contentId) {
     const s3Key = `youtube-videos/${videoId}/${videoId}.mp4`;
     const s3Url = await uploadToS3(localFilePath, s3Key, 'video/mp4');
 
-    // Step 8: Update YouTubeVideo with completion details
+    // Step 7: Update YouTubeVideo with completion details
     await youtubeVideo.markCompleted(s3Url, s3Key, downloadedFormat);
     await youtubeVideo.incrementUsage();
     
-    console.log('[YouTube Processor] ✓ YouTubeVideo updated with S3 URL and 4K metadata');
+    console.log('[YouTube Processor] ✓ YouTubeVideo updated with S3 URL');
 
-    // Step 9: Update Content with S3 URL and reference
+    // Step 8: Update Content with S3 URL and reference
     await Content.findByIdAndUpdate(contentId, {
       youTubeDownloadStatus: 'completed',
       youTubeDownloadedUrl: s3Url,
@@ -342,7 +283,7 @@ async function processYouTubeVideo(contentId) {
     console.log('[YouTube Processor] ✓ Processing complete! S3 URL:', s3Url);
     console.log('[YouTube Processor] ✓ YouTubeVideo ID:', youtubeVideo._id, '| Number:', youtubeVideo.videoNumber);
 
-    // Step 10: Clean up local file
+    // Step 9: Clean up local file
     await deleteLocalFile(localFilePath);
 
     return s3Url;
