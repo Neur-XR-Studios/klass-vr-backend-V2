@@ -1,6 +1,5 @@
 const { Session, Content, Assessment, Device } = require("../models");
 const catchAsync = require("../utils/catchAsync");
-const { resolveYouTubePlayable } = require("../services/youtube.service");
 
 const getDeployedSessionsWithAssessmentsAndContents = catchAsync(
   async (req, res) => {
@@ -35,15 +34,14 @@ const getDeployedSessionsWithAssessmentsAndContents = catchAsync(
               }
             });
 
-            if (updatedContent.youTubeUrl) {
-              try {
-                const resolved = await resolveYouTubePlayable(
-                  updatedContent.youTubeUrl
-                );
-                updatedContent.youTubeResolved = resolved || null;
-              } catch (e) {
-                updatedContent.youTubeResolved = null;
-              }
+            // Use S3 URL from download instead of URL conversion
+            if (updatedContent.youTubeDownloadedUrl) {
+              updatedContent.youTubePlayableUrl = updatedContent.youTubeDownloadedUrl;
+            } else if (updatedContent.youTubeUrl) {
+              // If not downloaded yet, return original URL
+              // Frontend should handle pending/downloading states
+              updatedContent.youTubePlayableUrl = null;
+              console.log('[Experience] YouTube video not yet downloaded for content:', updatedContent._id);
             }
 
             return updatedContent;

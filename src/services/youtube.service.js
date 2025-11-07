@@ -1,3 +1,18 @@
+/**
+ * ⚠️ DEPRECATED - DO NOT USE THIS FILE ⚠️
+ * 
+ * This file is deprecated as of 2025-11-07.
+ * 
+ * Use youtubeDownload.service.js instead for:
+ * - Permanent S3 storage (no expiration)
+ * - 4K quality support
+ * - Better reliability
+ * - No bot detection issues
+ * 
+ * This file remains for reference only.
+ * It has been removed from all active code paths.
+ */
+
 const { execFile } = require('child_process');
 const { promisify } = require('util');
 const config = require('../config/config');
