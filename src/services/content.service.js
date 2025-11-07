@@ -217,18 +217,10 @@ const updateContentById = async (contentId, updateBody) => {
       }
 
       // Queue YouTube download if URL is changed/added
+      // The processor will check if video already exists in YouTubeVideo collection
       if (youTubeUrl && youTubeUrl.trim()) {
-        // Check if URL changed or video not yet downloaded
-        const existingContent = await Content.findById(contentId);
-        const urlChanged = existingContent.youTubeUrl !== youTubeUrl;
-        const notDownloaded = existingContent.youTubeDownloadStatus !== 'completed' || !existingContent.youTubeDownloadedUrl;
-        
-        if (urlChanged || notDownloaded) {
-          console.log('[Content Service] Queueing YouTube download for content:', contentId);
-          queueYouTubeDownload(contentId);
-        } else {
-          console.log('[Content Service] Video already downloaded, skipping queue:', existingContent.youTubeDownloadedUrl);
-        }
+        console.log('[Content Service] Queueing YouTube download for content:', contentId);
+        queueYouTubeDownload(contentId);
       }
 
       return updatedContent;

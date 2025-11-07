@@ -19,3 +19,4 @@ module.exports.ActiveAndSync = require("./activeAndSyncTable.model");
 module.exports.Perfomance = require("./studentPerformance.model");
 module.exports.liveControl = require("./live_control.model");
 module.exports.Simulation = require("./simulation.model");
+module.exports.YouTubeVideo = require("./youtubeVideo.model");

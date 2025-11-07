@@ -102,6 +102,10 @@ const contentSchema = new mongoose.Schema(
     youTubeDownloadError: {
       type: String,
     },
+    youtubeVideoRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'YouTubeVideo', // Reference to YouTubeVideo collection
+    },
     language: {
       type: String,
       enum: ["arabic", "spanish", "english"],
