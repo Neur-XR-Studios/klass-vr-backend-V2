@@ -74,6 +74,7 @@ module.exports = {
     s3Bucket: envVars.AWS_S3_BUCKET,
   },
   youtube: {
+    cookie: envVars.YOUTUBE_COOKIE || null, // 'chrome', 'firefox', or path to cookie file
     cookieFile: envVars.YOUTUBE_COOKIE_FILE
       ? path.resolve(process.cwd(), envVars.YOUTUBE_COOKIE_FILE)
       : path.resolve(process.cwd(), 'youtube-cookies.txt'),

@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { uploadToS3, deleteLocalFile } = require('./s3.service');
 const Content = require('../models/content.model');
+const config = require('../config/config');
 
 const execFilePromise = promisify(execFile);
 
@@ -63,8 +64,23 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     '--no-playlist',
     '--no-warnings',
     '--progress',
-    youtubeUrl,
   ];
+
+  // Add cookie support to avoid bot detection
+  const youtubeCookie = process.env.YOUTUBE_COOKIE || config.youtube?.cookie;
+  if (youtubeCookie) {
+    if (youtubeCookie === 'chrome' || youtubeCookie === 'firefox' || youtubeCookie === 'edge' || youtubeCookie === 'safari') {
+      // Use browser cookies
+      args.push('--cookies-from-browser', youtubeCookie);
+      console.log('[YouTube Download] Using cookies from browser:', youtubeCookie);
+    } else if (fs.existsSync(youtubeCookie)) {
+      // Use cookie file
+      args.push('--cookies', youtubeCookie);
+      console.log('[YouTube Download] Using cookie file:', youtubeCookie);
+    }
+  }
+
+  args.push(youtubeUrl);
 
   // Add start/end time if specified
   if (options.startTime) {

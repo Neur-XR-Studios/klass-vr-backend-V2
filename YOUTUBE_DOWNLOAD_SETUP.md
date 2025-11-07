@@ -104,9 +104,33 @@ AWS_SECRET_ACCESS_KEY=your_secret_key
 AWS_REGION=us-east-1
 AWS_S3_BUCKET=klass-vr-videos
 
-# YouTube Download (optional - for restricted videos)
+# YouTube Download - REQUIRED to avoid bot detection
+# Option 1: Use browser cookies (recommended)
 YOUTUBE_COOKIE=chrome
+
+# Option 2: Use cookie file
+# YOUTUBE_COOKIE=/path/to/youtube-cookies.txt
 ```
+
+### **Important: YouTube Cookie Setup**
+
+YouTube now requires authentication to download videos. You MUST set `YOUTUBE_COOKIE` to avoid "Sign in to confirm you're not a bot" errors.
+
+**Option 1: Browser Cookies (Easiest)**
+```bash
+# Use cookies from your logged-in browser
+YOUTUBE_COOKIE=chrome    # or firefox, edge, safari
+```
+
+This extracts cookies from your browser where you're logged into YouTube.
+
+**Option 2: Export Cookie File**
+
+1. Install browser extension: "Get cookies.txt LOCALLY"
+2. Go to youtube.com (logged in)
+3. Click extension, export cookies
+4. Save as `youtube-cookies.txt` in project root
+5. Set: `YOUTUBE_COOKIE=/full/path/to/youtube-cookies.txt`
 
 ## API Usage
 
@@ -267,9 +291,22 @@ db.contents.find({
 **Fix:** Install yt-dlp on server (see Prerequisites)
 
 ### Error: "Sign in to confirm you're not a bot"
-**Fix:** Add browser cookies to `.env`:
+This is the most common error. YouTube requires authentication.
+
+**Fix (Required):** Add to `.env`:
 ```bash
 YOUTUBE_COOKIE=chrome
+```
+
+Then restart:
+```bash
+pm2 restart app
+```
+
+Verify it's working:
+```bash
+pm2 logs app | grep "Using cookies"
+# Should see: [YouTube Download] Using cookies from browser: chrome
 ```
 
 ### Error: "S3 upload failed: Access Denied"
