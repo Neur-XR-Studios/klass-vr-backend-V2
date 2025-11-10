@@ -192,7 +192,7 @@ const queryVideos = async (filter, options) => {
     delete filter.title;
     filter.$or = [
       { title: { $regex: searchRegex } },    // Search in model's title field
-      { tags: { $regex: searchRegex } }      // Search in comma-separated tags string
+      { tags: { $elemMatch: { $regex: searchRegex } } }  // Search in tags array elements
     ];
   }
 

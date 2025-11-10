@@ -26,6 +26,7 @@ const getVideos = {
   query: Joi.object().keys({
     title: Joi.string(),
     createdBy: Joi.string().custom(objectId),
+    tags: Joi.array().items(Joi.string()),
     sortBy: Joi.string(),
     limit: Joi.number().integer(),
     page: Joi.number().integer(),
@@ -61,6 +62,7 @@ const deleteVideo = {
 module.exports = {
   createVideo,
   getVideos,
+  queryVideos: getVideos,
   getVideo,
   updateVideo,
   deleteVideo,
