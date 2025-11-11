@@ -103,8 +103,8 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
 
     const downloadCmd = [
       'yt-dlp',
-      // This explicitly gets 4K VP9 or AV1 (which are the 4K formats available)
-      '-f "bestvideo[height=2160]+bestaudio/bestvideo[height<=2160]+bestaudio"',
+      // FIXED: This will force 4K video + best audio, then merge
+      '-f "bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio"',
       '--merge-output-format mp4',
       `--output "${outputTemplate}"`,
       '--no-playlist',
