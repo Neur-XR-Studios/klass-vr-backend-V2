@@ -90,20 +90,21 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       if (info && info.title) {
         console.log('[YouTube Download] Title:', info.title);
       }
-    } catch (_) {}
+    } catch (_) { }
 
     try {
       const { stdout: formats } = await execPromise(`yt-dlp${cookieArg} -F "${finalUrl}"`);
       if (formats) {
         console.log(formats);
       }
-    } catch (_) {}
+    } catch (_) { }
 
     const sectionArg = options.startTime ? ` --download-sections "*${options.startTime}-${options.endTime || 'inf'}"` : '';
 
     const downloadCmd = [
       'yt-dlp',
-      '-f "bestvideo[height<=2160]+bestaudio/best[height<=2160]"',
+      // This explicitly gets 4K VP9 or AV1 (which are the 4K formats available)
+      '-f "bestvideo[height=2160]+bestaudio/bestvideo[height<=2160]+bestaudio"',
       '--merge-output-format mp4',
       `--output "${outputTemplate}"`,
       '--no-playlist',
@@ -157,7 +158,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
 async function getVideoMetadata(youtubeUrl) {
   try {
     const args = ['--dump-json', '--no-playlist', youtubeUrl];
-    
+
     const youtubeCookie = process.env.YOUTUBE_COOKIE || config.youtube?.cookie;
     if (youtubeCookie) {
       if (youtubeCookie === 'chrome' || youtubeCookie === 'firefox' || youtubeCookie === 'edge' || youtubeCookie === 'safari') {
@@ -166,11 +167,11 @@ async function getVideoMetadata(youtubeUrl) {
         args.push('--cookies', youtubeCookie);
       }
     }
-    
+
     const { stdout } = await execFilePromise('yt-dlp', args, {
       maxBuffer: 1024 * 1024 * 10, // 10MB buffer
     });
-    
+
     const metadata = JSON.parse(stdout);
     return metadata;
   } catch (error) {
@@ -202,13 +203,13 @@ async function processYouTubeVideo(contentId) {
 
     // Step 1: Check if video already exists in YouTubeVideo collection
     youtubeVideo = await YouTubeVideo.findOne({ videoId });
-    
+
     if (youtubeVideo && youtubeVideo.downloadStatus === 'completed' && youtubeVideo.s3Url) {
       console.log('[YouTube Processor] ✓ Video already downloaded! Using existing:', youtubeVideo.s3Url);
-      
+
       // Increment usage count
       await youtubeVideo.incrementUsage();
-      
+
       // Update Content with existing S3 URL
       await Content.findByIdAndUpdate(contentId, {
         youTubeDownloadStatus: 'completed',
@@ -217,7 +218,7 @@ async function processYouTubeVideo(contentId) {
         youTubeDownloadError: null,
         youtubeVideoRef: youtubeVideo._id,
       });
-      
+
       return youtubeVideo.s3Url;
     }
 
@@ -225,7 +226,7 @@ async function processYouTubeVideo(contentId) {
     if (!youtubeVideo) {
       youtubeVideo = await YouTubeVideo.findOrCreateByUrl(youtubeUrl);
     }
-    
+
     youtubeVideo.downloadStatus = 'downloading';
     youtubeVideo.downloadStartedAt = new Date();
     await youtubeVideo.save();
@@ -264,7 +265,7 @@ async function processYouTubeVideo(contentId) {
     // Step 5: Extract format details from downloaded file
     const stats = fs.statSync(localFilePath);
     const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
-    
+
     const downloadedFormat = {
       resolution: '1920x1080',
       height: 1080,
@@ -277,7 +278,7 @@ async function processYouTubeVideo(contentId) {
     // Step 6: Upload to S3
     youtubeVideo.downloadStatus = 'uploading';
     await youtubeVideo.save();
-    
+
     await Content.findByIdAndUpdate(contentId, {
       youTubeDownloadStatus: 'uploading',
     });
@@ -288,7 +289,7 @@ async function processYouTubeVideo(contentId) {
     // Step 7: Update YouTubeVideo with completion details
     await youtubeVideo.markCompleted(s3Url, s3Key, downloadedFormat);
     await youtubeVideo.incrementUsage();
-    
+
     console.log('[YouTube Processor] ✓ YouTubeVideo updated with S3 URL');
 
     // Step 8: Update Content with S3 URL and reference
