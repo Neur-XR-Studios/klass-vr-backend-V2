@@ -52,7 +52,11 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     youTubeDownloadProgress: 0,
   });
 
-  console.log('[YouTube Download] Starting download for:', youtubeUrl);
+  // Sanitize URL in case of accidental duplication or extraneous text
+  const urlMatch = (youtubeUrl || '').match(/https?:\/\/[^\s]+/);
+  const finalUrl = urlMatch ? urlMatch[0] : youtubeUrl;
+
+  console.log('[YouTube Download] Starting download for:', finalUrl);
   console.log('[YouTube Download] Video ID:', videoId);
 
   const outputTemplate = path.join(DOWNLOADS_DIR, `${contentId}_${videoId}.mp4`);
@@ -64,9 +68,24 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       throw new Error('yt-dlp is not installed');
     }
 
+    // Cookie support
+    let cookieArg = '';
+    const youtubeCookie = process.env.YOUTUBE_COOKIE || config.youtube?.cookie;
+    if (youtubeCookie) {
+      if (youtubeCookie === 'chrome' || youtubeCookie === 'firefox' || youtubeCookie === 'edge' || youtubeCookie === 'safari') {
+        cookieArg = ` --cookies-from-browser ${youtubeCookie}`;
+        console.log('[YouTube Download] Using cookies from browser:', youtubeCookie);
+      } else if (fs.existsSync(youtubeCookie)) {
+        cookieArg = ` --cookies "${youtubeCookie}"`;
+        console.log('[YouTube Download] Using cookie file:', youtubeCookie);
+      } else {
+        console.log('[YouTube Download] Cookie path not found:', youtubeCookie);
+      }
+    }
+
     console.log('[YouTube Download] Fetching video info...');
     try {
-      const { stdout: infoJson } = await execPromise(`yt-dlp --dump-json "${youtubeUrl}"`);
+      const { stdout: infoJson } = await execPromise(`yt-dlp${cookieArg} --dump-json "${finalUrl}"`);
       const info = JSON.parse(infoJson);
       if (info && info.title) {
         console.log('[YouTube Download] Title:', info.title);
@@ -74,7 +93,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     } catch (_) {}
 
     try {
-      const { stdout: formats } = await execPromise(`yt-dlp -F "${youtubeUrl}"`);
+      const { stdout: formats } = await execPromise(`yt-dlp${cookieArg} -F "${finalUrl}"`);
       if (formats) {
         console.log(formats);
       }
@@ -91,7 +110,8 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       '--progress',
       '--newline',
       sectionArg,
-      `"${youtubeUrl}"`
+      cookieArg,
+      `"${finalUrl}"`
     ].join(' ');
 
     console.log('[YouTube Download] Running command:', downloadCmd);
