@@ -1,4 +1,4 @@
-const { execFile } = require('child_process');
+const { execFile, exec } = require('child_process');
 const { promisify } = require('util');
 const fs = require('fs');
 const path = require('path');
@@ -7,6 +7,7 @@ const { Content, YouTubeVideo } = require('../models');
 const config = require('../config/config');
 
 const execFilePromise = promisify(execFile);
+const execPromise = promisify(exec);
 
 // Temp downloads directory
 const DOWNLOADS_DIR = path.resolve(process.cwd(), 'temp-youtube-downloads');
@@ -55,63 +56,65 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
   console.log('[YouTube Download] Video ID:', videoId);
 
   const outputTemplate = path.join(DOWNLOADS_DIR, `${contentId}_${videoId}.mp4`);
-  
-  // yt-dlp arguments - Download 1080p with ffmpeg merging
-  const args = [
-    '--format', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080]',
-    '--merge-output-format', 'mp4',
-    '--output', outputTemplate,
-    '--no-playlist',
-    '--no-warnings',
-  ];
-
-  // Add cookie support to avoid bot detection
-  const youtubeCookie = process.env.YOUTUBE_COOKIE || config.youtube?.cookie;
-  if (youtubeCookie) {
-    if (youtubeCookie === 'chrome' || youtubeCookie === 'firefox' || youtubeCookie === 'edge' || youtubeCookie === 'safari') {
-      // Use browser cookies
-      args.push('--cookies-from-browser', youtubeCookie);
-      console.log('[YouTube Download] Using cookies from browser:', youtubeCookie);
-    } else if (fs.existsSync(youtubeCookie)) {
-      // Use cookie file
-      args.push('--cookies', youtubeCookie);
-      console.log('[YouTube Download] Using cookie file:', youtubeCookie);
-    }
-  }
-
-  args.push(youtubeUrl);
-
-  // Add start/end time if specified
-  if (options.startTime) {
-    args.push('--download-sections', `*${options.startTime}-${options.endTime || 'inf'}`);
-  }
-
-  console.log('[YouTube Download] Command: yt-dlp', args.join(' '));
-
   try {
-    // Execute yt-dlp
-    const { stdout, stderr } = await execFilePromise('yt-dlp', args, {
-      maxBuffer: 1024 * 1024 * 100, // 100MB buffer
-      timeout: 600000, // 10 minutes timeout
+    console.log('[YouTube Download] Checking yt-dlp installation...');
+    try {
+      await execPromise('yt-dlp --version');
+    } catch (e) {
+      throw new Error('yt-dlp is not installed');
+    }
+
+    console.log('[YouTube Download] Fetching video info...');
+    try {
+      const { stdout: infoJson } = await execPromise(`yt-dlp --dump-json "${youtubeUrl}"`);
+      const info = JSON.parse(infoJson);
+      if (info && info.title) {
+        console.log('[YouTube Download] Title:', info.title);
+      }
+    } catch (_) {}
+
+    try {
+      const { stdout: formats } = await execPromise(`yt-dlp -F "${youtubeUrl}"`);
+      if (formats) {
+        console.log(formats);
+      }
+    } catch (_) {}
+
+    const sectionArg = options.startTime ? ` --download-sections "*${options.startTime}-${options.endTime || 'inf'}"` : '';
+
+    const downloadCmd = [
+      'yt-dlp',
+      '-f "bestvideo[height<=2160]+bestaudio/best[height<=2160]"',
+      '--merge-output-format mp4',
+      `--output "${outputTemplate}"`,
+      '--no-playlist',
+      '--progress',
+      '--newline',
+      sectionArg,
+      `"${youtubeUrl}"`
+    ].join(' ');
+
+    console.log('[YouTube Download] Running command:', downloadCmd);
+
+    await new Promise((resolve, reject) => {
+      const child = exec(downloadCmd, { maxBuffer: 1024 * 1024 * 100 });
+      child.stdout.on('data', (data) => process.stdout.write(data));
+      child.stderr.on('data', (data) => process.stderr.write(data));
+      child.on('close', (code) => {
+        if (code === 0) return resolve();
+        reject(new Error(`yt-dlp exited with code ${code}`));
+      });
+      child.on('error', reject);
     });
 
-    if (stdout && stdout.trim()) {
-      console.log('[YouTube Download] Output:', stdout.trim());
-    }
-    
-    console.log('[YouTube Download] ✓ Download complete:', outputTemplate);
-
-    // Check if file exists
     if (!fs.existsSync(outputTemplate)) {
       throw new Error('Downloaded file not found');
     }
 
-    // Get file size
     const stats = fs.statSync(outputTemplate);
     const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
     console.log('[YouTube Download] File size:', fileSizeMB, 'MB');
 
-    // Update status
     await Content.findByIdAndUpdate(contentId, {
       youTubeDownloadStatus: 'downloaded',
       youTubeDownloadProgress: 100,
@@ -120,13 +123,10 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     return outputTemplate;
   } catch (error) {
     console.error('[YouTube Download] Error:', error.message);
-    
-    // Update status to failed
     await Content.findByIdAndUpdate(contentId, {
       youTubeDownloadStatus: 'failed',
       youTubeDownloadError: error.message,
     });
-
     throw error;
   }
 }
