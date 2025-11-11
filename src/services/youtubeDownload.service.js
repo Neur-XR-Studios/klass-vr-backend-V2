@@ -67,6 +67,13 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     } catch (e) {
       throw new Error('yt-dlp is not installed');
     }
+    let ytDlpBin = 'yt-dlp';
+    try {
+      const { stdout: ytPathStdout } = await execPromise('command -v yt-dlp || which yt-dlp');
+      if (ytPathStdout && ytPathStdout.trim()) {
+        ytDlpBin = ytPathStdout.trim();
+      }
+    } catch (_) {}
 
     // Cookie support
     let cookieArg = '';
@@ -83,9 +90,23 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       }
     }
 
+    // Common args to improve headless-server reliability
+    const uaArg = ' --user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15"';
+    const retryArgs = ' --retries 10 --fragment-retries 10 --socket-timeout 30 --geo-bypass';
+
+    let ffmpegArg = '';
+    try {
+      await execPromise('ffmpeg -version');
+    } catch (_) {
+      const configuredFfmpeg = config.youtube?.ffmpegPath;
+      if (configuredFfmpeg && fs.existsSync(configuredFfmpeg)) {
+        ffmpegArg = ` --ffmpeg-location "${configuredFfmpeg}"`;
+      }
+    }
+
     console.log('[YouTube Download] Fetching video info...');
     try {
-      const { stdout: infoJson } = await execPromise(`yt-dlp${cookieArg} --dump-json "${finalUrl}"`);
+      const { stdout: infoJson } = await execPromise(`${ytDlpBin}${cookieArg}${uaArg}${retryArgs}${ffmpegArg} --dump-json "${finalUrl}"`);
       const info = JSON.parse(infoJson);
       if (info && info.title) {
         console.log('[YouTube Download] Title:', info.title);
@@ -93,7 +114,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     } catch (_) { }
 
     try {
-      const { stdout: formats } = await execPromise(`yt-dlp${cookieArg} -F "${finalUrl}"`);
+      const { stdout: formats } = await execPromise(`${ytDlpBin}${cookieArg}${uaArg}${retryArgs}${ffmpegArg} -F "${finalUrl}"`);
       if (formats) {
         console.log(formats);
       }
@@ -102,7 +123,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     const sectionArg = options.startTime ? ` --download-sections "*${options.startTime}-${options.endTime || 'inf'}"` : '';
 
     const downloadCmd = [
-      'yt-dlp',
+      ytDlpBin,
       // FIXED: This will force 4K video + best audio, then merge
       '-f "bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio"',
       '--merge-output-format mp4',
@@ -112,6 +133,9 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       '--newline',
       sectionArg,
       cookieArg,
+      uaArg,
+      retryArgs,
+      ffmpegArg,
       `"${finalUrl}"`
     ].join(' ');
 
