@@ -91,8 +91,12 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     }
 
     // Common args to improve headless-server reliability
-    const uaArg = ' --user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15"';
+    const uaArg = ' --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"';
     const retryArgs = ' --retries 10 --fragment-retries 10 --socket-timeout 30 --geo-bypass';
+    const ipArg = ' --force-ipv4';
+    // Prefer Android client to avoid web_safari SABR issue ONLY when cookies are NOT used
+    // Note: Android client does not support cookies; yt-dlp will skip it if cookies are present
+    const extractorArg = cookieArg ? '' : ' --extractor-args "youtube:player_client=android"';
 
     let ffmpegArg = '';
     try {
@@ -106,7 +110,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
 
     console.log('[YouTube Download] Fetching video info...');
     try {
-      const { stdout: infoJson } = await execPromise(`${ytDlpBin}${cookieArg}${uaArg}${retryArgs}${ffmpegArg} --dump-json "${finalUrl}"`);
+      const { stdout: infoJson } = await execPromise(`${ytDlpBin}${cookieArg}${uaArg}${retryArgs}${ipArg}${extractorArg}${ffmpegArg} --dump-json "${finalUrl}"`);
       const info = JSON.parse(infoJson);
       if (info && info.title) {
         console.log('[YouTube Download] Title:', info.title);
@@ -114,7 +118,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     } catch (_) { }
 
     try {
-      const { stdout: formats } = await execPromise(`${ytDlpBin}${cookieArg}${uaArg}${retryArgs}${ffmpegArg} -F "${finalUrl}"`);
+      const { stdout: formats } = await execPromise(`${ytDlpBin}${cookieArg}${uaArg}${retryArgs}${ipArg}${extractorArg}${ffmpegArg} -F "${finalUrl}"`);
       if (formats) {
         console.log(formats);
       }
@@ -124,8 +128,8 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
 
     const downloadCmd = [
       ytDlpBin,
-      // FIXED: This will force 4K video + best audio, then merge
-      '-f "bestvideo[height<=2160][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=2160]+bestaudio"',
+      // Prefer 4K separate streams; fall back to best available without erroring (no ext filters)
+      '-f "bv*[height<=2160]+ba/b[height<=2160]/b"',
       '--merge-output-format mp4',
       `--output "${outputTemplate}"`,
       '--no-playlist',
@@ -135,22 +139,68 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       cookieArg,
       uaArg,
       retryArgs,
+      ipArg,
+      extractorArg,
       ffmpegArg,
       `"${finalUrl}"`
     ].join(' ');
 
     console.log('[YouTube Download] Running command:', downloadCmd);
 
-    await new Promise((resolve, reject) => {
-      const child = exec(downloadCmd, { maxBuffer: 1024 * 1024 * 100 });
-      child.stdout.on('data', (data) => process.stdout.write(data));
-      child.stderr.on('data', (data) => process.stderr.write(data));
-      child.on('close', (code) => {
-        if (code === 0) return resolve();
-        reject(new Error(`yt-dlp exited with code ${code}`));
+    let stderrBuf = '';
+    try {
+      await new Promise((resolve, reject) => {
+        const child = exec(downloadCmd, { maxBuffer: 1024 * 1024 * 100 });
+        child.stdout.on('data', (data) => process.stdout.write(data));
+        child.stderr.on('data', (data) => { stderrBuf += String(data); process.stderr.write(data); });
+        child.on('close', (code) => {
+          if (code === 0) return resolve();
+          reject(new Error(`yt-dlp exited with code ${code}`));
+        });
+        child.on('error', reject);
       });
-      child.on('error', reject);
-    });
+    } catch (primaryErr) {
+      const indicative = /Requested format is not available|SABR streaming|nsig extraction failed|missing a url/i.test(stderrBuf);
+      if (!indicative) throw primaryErr;
+
+      console.log('[YouTube Download] Primary attempt failed due to format/SABR. Retrying with Android client and no cookies...');
+
+      // Build fallback without cookies using Android client and Android UA
+      const androidUA = ' --user-agent "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"';
+      const fallbackExtractor = ' --extractor-args "youtube:player_client=android"';
+
+      const fallbackCmd = [
+        ytDlpBin,
+        '-f "bv*[height<=2160]+ba/b[height<=2160]/b"',
+        '--merge-output-format mp4',
+        `--output "${outputTemplate}"`,
+        '--no-playlist',
+        '--progress',
+        '--newline',
+        sectionArg,
+        // no cookieArg here
+        androidUA,
+        retryArgs,
+        ipArg,
+        fallbackExtractor,
+        ffmpegArg,
+        `"${finalUrl}"`
+      ].join(' ');
+
+      console.log('[YouTube Download] Running fallback command:', fallbackCmd);
+
+      stderrBuf = '';
+      await new Promise((resolve, reject) => {
+        const child = exec(fallbackCmd, { maxBuffer: 1024 * 1024 * 100 });
+        child.stdout.on('data', (data) => process.stdout.write(data));
+        child.stderr.on('data', (data) => { stderrBuf += String(data); process.stderr.write(data); });
+        child.on('close', (code) => {
+          if (code === 0) return resolve();
+          reject(new Error(`yt-dlp fallback exited with code ${code}`));
+        });
+        child.on('error', reject);
+      });
+    }
 
     if (!fs.existsSync(outputTemplate)) {
       throw new Error('Downloaded file not found');
