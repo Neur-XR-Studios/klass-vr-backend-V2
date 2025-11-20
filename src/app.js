@@ -16,6 +16,7 @@ const ApiError = require('./utils/ApiError');
 const path = require('path');
 const cron = require('node-cron');
 const subscriptionCronJob = require('./subscriptionCronJobs');
+const youtubeCookieService = require('./services/youtube.cookie.service');
 
 const app = express();
 
@@ -66,6 +67,15 @@ app.use('/public', express.static(path.join(__dirname, '..', 'public')));
 cron.schedule('0 0 * * *', () => {
   subscriptionCronJob();
 });
+if (config.youtube.email && config.youtube.password) {
+  cron.schedule('0 */12 * * *', async () => {
+    try {
+      await youtubeCookieService.ensureFreshCookies(true);
+    } catch (error) {
+      console.error('[YouTube Cookie Cron] Failed to refresh cookies', error.message);
+    }
+  });
+}
 
 app.use('/v1', routes);
 

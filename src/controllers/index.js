@@ -17,3 +17,5 @@ module.exports.perfomanceController = require("./perfomance.controller");
 module.exports.dashboardController = require("./dashboard.controller");
 module.exports.simulationController = require("./simulation.controller");
 module.exports.youtubeDownloadController = require("./youtubeDownload.controller");
+module.exports.youtubeCookieController = require("./youtubeCookie.controller");
+

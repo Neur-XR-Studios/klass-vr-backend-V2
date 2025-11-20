@@ -79,5 +79,8 @@ module.exports = {
       ? path.resolve(process.cwd(), envVars.YOUTUBE_COOKIE_FILE)
       : path.resolve(process.cwd(), 'youtube-cookies.txt'),
     userAgent: envVars.YOUTUBE_USER_AGENT || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    email: process.env.YOUTUBE_EMAIL,
+    password: process.env.YOUTUBE_PASSWORD,
+    cookiePath: process.env.YOUTUBE_COOKIE_PATH || path.join(__dirname, '../../youtube-cookies.txt'),
   },
 };

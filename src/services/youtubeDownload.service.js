@@ -5,6 +5,7 @@ const path = require('path');
 const { uploadToS3, deleteLocalFile } = require('./s3.service');
 const { Content, YouTubeVideo } = require('../models');
 const config = require('../config/config');
+const youtubeCookieService = require('./youtube.cookie.service');
 
 const execFilePromise = promisify(execFile);
 const execPromise = promisify(exec);
@@ -46,6 +47,10 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     throw new Error('Invalid YouTube URL');
   }
 
+  if (config.youtube.email && config.youtube.password) {
+    await youtubeCookieService.ensureFreshCookies();
+  }
+
   // Update status to downloading
   await Content.findByIdAndUpdate(contentId, {
     youTubeDownloadStatus: 'downloading',
@@ -77,7 +82,12 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
 
     // Cookie support
     let cookieArg = '';
-    const youtubeCookie = process.env.YOUTUBE_COOKIE || config.youtube?.cookie;
+    let youtubeCookie = null;
+    if (config.youtube.email && config.youtube.password) {
+      youtubeCookie = youtubeCookieService.getCookiePath();
+    } else {
+      youtubeCookie = process.env.YOUTUBE_COOKIE || config.youtube?.cookie;
+    }
     if (youtubeCookie) {
       if (youtubeCookie === 'chrome' || youtubeCookie === 'firefox' || youtubeCookie === 'edge' || youtubeCookie === 'safari') {
         cookieArg = ` --cookies-from-browser ${youtubeCookie}`;
@@ -231,9 +241,17 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
  */
 async function getVideoMetadata(youtubeUrl) {
   try {
+    if (config.youtube.email && config.youtube.password) {
+      await youtubeCookieService.ensureFreshCookies();
+    }
     const args = ['--dump-json', '--no-playlist', youtubeUrl];
 
-    const youtubeCookie = process.env.YOUTUBE_COOKIE || config.youtube?.cookie;
+    let youtubeCookie = null;
+    if (config.youtube.email && config.youtube.password) {
+      youtubeCookie = youtubeCookieService.getCookiePath();
+    } else {
+      youtubeCookie = process.env.YOUTUBE_COOKIE || config.youtube?.cookie;
+    }
     if (youtubeCookie) {
       if (youtubeCookie === 'chrome' || youtubeCookie === 'firefox' || youtubeCookie === 'edge' || youtubeCookie === 'safari') {
         args.push('--cookies-from-browser', youtubeCookie);
