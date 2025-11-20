@@ -100,14 +100,15 @@ class YouTubeCookieService {
         logger.info('Starting YouTube cookie refresh...');
 
         const browser = await puppeteer.launch({
-            headless: 'new',
+            headless: true,
+            executablePath: '/usr/bin/chromium-browser',
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu'
+                '--disable-dev-shm-usage'
             ]
         });
+
 
         try {
             const page = await browser.newPage();
