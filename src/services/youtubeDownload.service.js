@@ -113,6 +113,19 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
 
   const outputTemplate = path.join(DOWNLOADS_DIR, `${contentId}_${videoId}.mp4`);
   try {
+    // Diagnostic check
+    try {
+      console.log('[YouTube Download] Diagnostic Check:');
+      const { stdout: nodePath } = await execPromise('which node || echo "node not found"');
+      const { stdout: nodeVer } = await execPromise('node -v || echo "unknown"');
+      console.log(`[YouTube Download] Node.js: ${nodePath.trim()} (${nodeVer.trim()})`);
+
+      const { stdout: ffmpegPath } = await execPromise('which ffmpeg || echo "ffmpeg not found"');
+      console.log(`[YouTube Download] ffmpeg: ${ffmpegPath.trim()}`);
+    } catch (e) {
+      console.log('[YouTube Download] Diagnostic check failed:', e.message);
+    }
+
     console.log('[YouTube Download] Checking yt-dlp installation...');
     try {
       await execPromise('yt-dlp --version');
@@ -124,6 +137,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       const { stdout: ytPathStdout } = await execPromise('command -v yt-dlp || which yt-dlp');
       if (ytPathStdout && ytPathStdout.trim()) {
         ytDlpBin = ytPathStdout.trim();
+        console.log(`[YouTube Download] yt-dlp binary: ${ytDlpBin}`);
       }
     } catch (_) { }
 
