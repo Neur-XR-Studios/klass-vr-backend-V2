@@ -52,4 +52,19 @@ sudo apt-get install -y \
     wget \
     xdg-utils
 
+# Fix Node.js visibility for yt-dlp (Symlink NVM node to system path)
+echo "Symlinking Node.js for system-wide access..."
+current_node=$(which node)
+if [ -n "$current_node" ]; then
+    sudo ln -sf "$current_node" /usr/bin/node
+    sudo ln -sf "$current_node" /usr/local/bin/node
+    echo "Linked $current_node to /usr/bin/node"
+else
+    echo "Warning: Could not find node path to symlink"
+fi
+
+# Install Puppeteer Browser explicitly
+echo "Installing Puppeteer Chrome browser..."
+npx puppeteer browsers install chrome
+
 echo "Installation complete! Please restart your application."
