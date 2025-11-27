@@ -18,29 +18,46 @@ if (!fs.existsSync(DOWNLOADS_DIR)) {
   fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 }
 
+const youtubeCookieService = require('./youtube.cookie.service');
+
 /**
- * Get cookies for yt-dlp - try browser cookies first, then file-based
+ * Get cookies for yt-dlp - try automated service first, then browser, then file
  */
 async function getYtdlpCookies() {
   try {
-    // Method 1: Try browser cookies first (most reliable for high quality)
-    const browserCookies = ['chrome', 'firefox', 'edge', 'safari'];
+    // Method 1: Try automated cookie service (User's preferred method)
+    try {
+      console.log('[YouTube Download] Checking/Refreshing cookies via automation...');
+      // Only refresh if needed (checks expiry and validity)
+      const isFresh = await youtubeCookieService.ensureFreshCookies();
+      if (isFresh) {
+        const cookiePath = youtubeCookieService.getCookiePath();
+        if (fs.existsSync(cookiePath)) {
+          console.log('[YouTube Download] ✓ Using automated cookies:', cookiePath);
+          return cookiePath;
+        }
+      }
+    } catch (error) {
+      console.log('[YouTube Download] Automated cookie refresh failed:', error.message);
+      // Fallthrough to other methods
+    }
 
+    // Method 2: Try browser cookies (Local dev fallback)
+    const browserCookies = ['chrome', 'firefox', 'edge', 'safari'];
     for (const browser of browserCookies) {
       try {
-        // Test if browser is available and has YouTube cookies
         await execPromise(`yt-dlp --cookies-from-browser ${browser} --dump-json --no-playlist https://www.youtube.com/watch?v=dQw4w9WgXcQ`, { timeout: 15000 });
-        console.log(`[YouTube Download] ✓ Using ${browser} cookies for authenticated high quality access`);
+        console.log(`[YouTube Download] ✓ Using ${browser} cookies`);
         return browser;
       } catch (error) {
-        console.log(`[YouTube Download] ${browser} cookies not available`);
+        // Silent fail for browsers
       }
     }
 
-    // Method 2: Try file-based cookies if configured
+    // Method 3: Try static file (Legacy fallback)
     const cookieSource = config.youtube?.cookieFile || config.youtube?.cookie;
     if (cookieSource && fs.existsSync(cookieSource)) {
-      console.log('[YouTube Download] Using file-based cookies:', cookieSource);
+      console.log('[YouTube Download] Using static file cookies:', cookieSource);
       return cookieSource;
     }
 
