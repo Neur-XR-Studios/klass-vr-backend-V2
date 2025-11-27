@@ -31,7 +31,9 @@ const envVarsSchema = Joi.object()
     YOUTUBE_IDENTITY_TOKEN: Joi.string().allow(''),
     YOUTUBE_USER_AGENT: Joi.string().allow(''),
     YOUTUBE_COOKIE_FILE: Joi.string().allow(''),
-    YOUTUBE_USER_AGENT: Joi.string().allow(''),
+    GOOGLE_OAUTH_CLIENT_ID: Joi.string().allow(''),
+    GOOGLE_OAUTH_CLIENT_SECRET: Joi.string().allow(''),
+    GOOGLE_OAUTH_REDIRECT_URI: Joi.string().allow(''),
 
   })
   .unknown();
@@ -82,5 +84,10 @@ module.exports = {
     email: process.env.YOUTUBE_EMAIL,
     password: process.env.YOUTUBE_PASSWORD,
     cookiePath: process.env.YOUTUBE_COOKIE_PATH || path.join(__dirname, '../../youtube-cookies.txt'),
+  },
+  google: {
+    clientId: envVars.GOOGLE_OAUTH_CLIENT_ID,
+    clientSecret: envVars.GOOGLE_OAUTH_CLIENT_SECRET,
+    redirectUri: envVars.GOOGLE_OAUTH_REDIRECT_URI || 'http://localhost:3000/auth/google/callback',
   },
 };

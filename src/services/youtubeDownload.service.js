@@ -5,6 +5,7 @@ const path = require('path');
 const { uploadToS3, deleteLocalFile } = require('./s3.service');
 const { Content, YouTubeVideo } = require('../models');
 const config = require('../config/config');
+const googleOAuth = require('./googleOAuth.service');
 
 const execFilePromise = promisify(execFile);
 const execPromise = promisify(exec);
@@ -15,6 +16,40 @@ const DOWNLOADS_DIR = path.resolve(process.cwd(), 'temp-youtube-downloads');
 // Ensure downloads directory exists
 if (!fs.existsSync(DOWNLOADS_DIR)) {
   fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+}
+
+/**
+ * Get cookies for yt-dlp - try browser cookies first, then file-based
+ */
+async function getYtdlpCookies() {
+  try {
+    // Method 1: Try browser cookies first (most reliable for high quality)
+    const browserCookies = ['chrome', 'firefox', 'edge', 'safari'];
+
+    for (const browser of browserCookies) {
+      try {
+        // Test if browser is available and has YouTube cookies
+        await execPromise(`yt-dlp --cookies-from-browser ${browser} --dump-json --no-playlist https://www.youtube.com/watch?v=dQw4w9WgXcQ`, { timeout: 15000 });
+        console.log(`[YouTube Download] ✓ Using ${browser} cookies for authenticated high quality access`);
+        return browser;
+      } catch (error) {
+        console.log(`[YouTube Download] ${browser} cookies not available`);
+      }
+    }
+
+    // Method 2: Try file-based cookies if configured
+    const cookieSource = config.youtube?.cookieFile || config.youtube?.cookie;
+    if (cookieSource && fs.existsSync(cookieSource)) {
+      console.log('[YouTube Download] Using file-based cookies:', cookieSource);
+      return cookieSource;
+    }
+
+    console.log('[YouTube Download] ⚠ No cookies available - will try without authentication');
+    return null;
+  } catch (error) {
+    console.error('[YouTube Download] Error getting cookies:', error.message);
+    return null;
+  }
 }
 
 /**
@@ -73,20 +108,20 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       if (ytPathStdout && ytPathStdout.trim()) {
         ytDlpBin = ytPathStdout.trim();
       }
-    } catch (_) {}
+    } catch (_) { }
 
-    // Cookie support
+    // Cookie support - prefer OAuth tokens
     let cookieArg = '';
-    const youtubeCookie = process.env.YOUTUBE_COOKIE || config.youtube?.cookie;
-    if (youtubeCookie) {
-      if (youtubeCookie === 'chrome' || youtubeCookie === 'firefox' || youtubeCookie === 'edge' || youtubeCookie === 'safari') {
-        cookieArg = ` --cookies-from-browser ${youtubeCookie}`;
-        console.log('[YouTube Download] Using cookies from browser:', youtubeCookie);
-      } else if (fs.existsSync(youtubeCookie)) {
-        cookieArg = ` --cookies "${youtubeCookie}"`;
-        console.log('[YouTube Download] Using cookie file:', youtubeCookie);
+    const cookieSource = await getYtdlpCookies();
+    if (cookieSource) {
+      if (cookieSource === 'chrome' || cookieSource === 'firefox' || cookieSource === 'edge' || cookieSource === 'safari') {
+        cookieArg = ` --cookies-from-browser ${cookieSource}`;
+        console.log('[YouTube Download] Using cookies from browser:', cookieSource);
+      } else if (fs.existsSync(cookieSource)) {
+        cookieArg = ` --cookies "${cookieSource}"`;
+        console.log('[YouTube Download] Using cookie file:', cookieSource);
       } else {
-        console.log('[YouTube Download] Cookie path not found:', youtubeCookie);
+        console.log('[YouTube Download] Cookie path not found:', cookieSource);
       }
     }
 
@@ -94,9 +129,9 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     const uaArg = ' --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"';
     const retryArgs = ' --retries 10 --fragment-retries 10 --socket-timeout 30 --geo-bypass';
     const ipArg = ' --force-ipv4';
-    // Prefer Android client to avoid web_safari SABR issue ONLY when cookies are NOT used
-    // Note: Android client does not support cookies; yt-dlp will skip it if cookies are present
-    const extractorArg = cookieArg ? '' : ' --extractor-args "youtube:player_client=android"';
+
+    // Always use web client for best quality
+    const extractorArg = ' --extractor-args "youtube:player_client=web"';
 
     let ffmpegArg = '';
     try {
@@ -126,80 +161,110 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
 
     const sectionArg = options.startTime ? ` --download-sections "*${options.startTime}-${options.endTime || 'inf'}"` : '';
 
-    const downloadCmd = [
-      ytDlpBin,
-      // Prefer 4K separate streams; fall back to best available without erroring (no ext filters)
-      '-f "bv*[height<=2160]+ba/b[height<=2160]/b"',
-      '--merge-output-format mp4',
-      `--output "${outputTemplate}"`,
-      '--no-playlist',
-      '--progress',
-      '--newline',
-      sectionArg,
-      cookieArg,
-      uaArg,
-      retryArgs,
-      ipArg,
-      extractorArg,
-      ffmpegArg,
-      `"${finalUrl}"`
-    ].join(' ');
+    // Robust multi-method approach - prioritize quality with proper client selection
+    const downloadMethods = [
+      {
+        name: 'Best Quality (TV Client)',
+        format: 'bv*[height<=2160]+ba/b',
+        client: 'youtube:player_client=tv_embedded',
+        ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        useCookies: true
+      },
+      {
+        name: 'Mixed Quality (Web Client)',
+        format: 'bv*[height<=2160]+ba/b',
+        client: 'youtube:player_client=web',
+        ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        useCookies: true
+      },
+      {
+        name: 'iOS Client (High Quality)',
+        format: 'bv*[height<=1080]+ba/b',
+        client: 'youtube:player_client=ios',
+        ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+        useCookies: true
+      },
+      {
+        name: 'High Quality (Android SDK-less)',
+        format: 'bv*[height<=1080]+ba/b',
+        client: 'youtube:player_client=android,youtube:player_skip=configs',
+        ua: 'com.google.android.youtube/19.45.38 (Linux; U; Android 13) gzip',
+        useCookies: false
+      },
+      {
+        name: 'Android Embedded',
+        format: 'bv*+ba/b',
+        client: 'youtube:player_client=android_embedded',
+        ua: 'com.google.android.youtube/19.45.38 (Linux; U; Android 13) gzip',
+        useCookies: false
+      },
+      {
+        name: 'Best Available (Fallback)',
+        format: 'b',
+        client: 'youtube:player_client=android,youtube:player_skip=webpage,configs',
+        ua: 'com.google.android.youtube/19.45.38 (Linux; U; Android 13) gzip',
+        useCookies: false
+      }
+    ];
 
-    console.log('[YouTube Download] Running command:', downloadCmd);
-
+    let lastError = null;
     let stderrBuf = '';
-    try {
-      await new Promise((resolve, reject) => {
-        const child = exec(downloadCmd, { maxBuffer: 1024 * 1024 * 100 });
-        child.stdout.on('data', (data) => process.stdout.write(data));
-        child.stderr.on('data', (data) => { stderrBuf += String(data); process.stderr.write(data); });
-        child.on('close', (code) => {
-          if (code === 0) return resolve();
-          reject(new Error(`yt-dlp exited with code ${code}`));
+
+    for (const method of downloadMethods) {
+      try {
+        console.log(`[YouTube Download] Trying method: ${method.name}`);
+
+        const methodCookieArg = method.useCookies && cookieSource ?
+          (cookieSource.includes('chrome') || cookieSource.includes('firefox') || cookieSource.includes('edge') || cookieSource.includes('safari') ?
+            ` --cookies-from-browser ${cookieSource}` : ` --cookies "${cookieSource}"`) : '';
+
+        const methodCmd = [
+          ytDlpBin,
+          `-f "${method.format}"`,
+          '--merge-output-format mp4',
+          `--output "${outputTemplate}"`,
+          '--no-playlist',
+          '--progress',
+          '--newline',
+          '--remote-components ejs:github', // Enable remote components for challenge solving
+          sectionArg,
+          methodCookieArg,
+          ` --user-agent "${method.ua}"`,
+          retryArgs,
+          ipArg,
+          ` --extractor-args "${method.client}"`,
+          ffmpegArg,
+          `"${finalUrl}"`
+        ].join(' ');
+
+        console.log(`[YouTube Download] Running ${method.name} command:`, methodCmd);
+
+        stderrBuf = ''; // Reset for each method
+        await new Promise((resolve, reject) => {
+          const child = exec(methodCmd, { maxBuffer: 1024 * 1024 * 100 });
+          child.stdout.on('data', (data) => process.stdout.write(data));
+          child.stderr.on('data', (data) => {
+            const output = String(data);
+            process.stderr.write(output);
+            if (output.includes('ERROR') || output.includes('WARNING')) {
+              stderrBuf += output;
+            }
+          });
+          child.on('close', (code) => {
+            if (code === 0) return resolve();
+            reject(new Error(`${method.name} exited with code ${code}`));
+          });
+          child.on('error', reject);
         });
-        child.on('error', reject);
-      });
-    } catch (primaryErr) {
-      const indicative = /Requested format is not available|SABR streaming|nsig extraction failed|missing a url/i.test(stderrBuf);
-      if (!indicative) throw primaryErr;
 
-      console.log('[YouTube Download] Primary attempt failed due to format/SABR. Retrying with Android client and no cookies...');
+        console.log(`[YouTube Download] ✓ ${method.name} succeeded!`);
+        break; // Success! Exit the loop
 
-      // Build fallback without cookies using Android client and Android UA
-      const androidUA = ' --user-agent "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"';
-      const fallbackExtractor = ' --extractor-args "youtube:player_client=android"';
-
-      const fallbackCmd = [
-        ytDlpBin,
-        '-f "bv*[height<=2160]+ba/b[height<=2160]/b"',
-        '--merge-output-format mp4',
-        `--output "${outputTemplate}"`,
-        '--no-playlist',
-        '--progress',
-        '--newline',
-        sectionArg,
-        // no cookieArg here
-        androidUA,
-        retryArgs,
-        ipArg,
-        fallbackExtractor,
-        ffmpegArg,
-        `"${finalUrl}"`
-      ].join(' ');
-
-      console.log('[YouTube Download] Running fallback command:', fallbackCmd);
-
-      stderrBuf = '';
-      await new Promise((resolve, reject) => {
-        const child = exec(fallbackCmd, { maxBuffer: 1024 * 1024 * 100 });
-        child.stdout.on('data', (data) => process.stdout.write(data));
-        child.stderr.on('data', (data) => { stderrBuf += String(data); process.stderr.write(data); });
-        child.on('close', (code) => {
-          if (code === 0) return resolve();
-          reject(new Error(`yt-dlp fallback exited with code ${code}`));
-        });
-        child.on('error', reject);
-      });
+      } catch (error) {
+        console.log(`[YouTube Download] ✗ ${method.name} failed:`, error.message);
+        lastError = error;
+        continue; // Try next method
+      }
     }
 
     if (!fs.existsSync(outputTemplate)) {
@@ -208,12 +273,36 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
 
     const stats = fs.statSync(outputTemplate);
     const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
-    console.log('[YouTube Download] File size:', fileSizeMB, 'MB');
+    console.log('[YouTube Download] ✓ Download complete! File size:', fileSizeMB, 'MB');
+
+    // Get video metadata to verify quality
+    try {
+      const { stdout: metadataJson } = await execPromise(`ffprobe -v quiet -print_format json -show_streams "${outputTemplate}"`);
+      const metadata = JSON.parse(metadataJson);
+      const videoStream = metadata.streams?.find(s => s.codec_type === 'video');
+      if (videoStream) {
+        console.log(`[YouTube Download] ✓ Video resolution: ${videoStream.width}x${videoStream.height}`);
+        console.log(`[YouTube Download] ✓ Video codec: ${videoStream.codec_name}`);
+      }
+    } catch (error) {
+      console.log('[YouTube Download] Could not read video metadata:', error.message);
+    }
 
     await Content.findByIdAndUpdate(contentId, {
       youTubeDownloadStatus: 'downloaded',
       youTubeDownloadProgress: 100,
     });
+
+    // Clean up temporary OAuth cookie file if it exists
+    const tempCookieFile = path.join(DOWNLOADS_DIR, 'oauth-cookies.txt');
+    if (fs.existsSync(tempCookieFile)) {
+      try {
+        fs.unlinkSync(tempCookieFile);
+        console.log('[YouTube Download] ✓ Cleaned up temporary OAuth cookie file');
+      } catch (error) {
+        console.error('[YouTube Download] Error cleaning up OAuth cookie file:', error.message);
+      }
+    }
 
     return outputTemplate;
   } catch (error) {
@@ -233,12 +322,13 @@ async function getVideoMetadata(youtubeUrl) {
   try {
     const args = ['--dump-json', '--no-playlist', youtubeUrl];
 
-    const youtubeCookie = process.env.YOUTUBE_COOKIE || config.youtube?.cookie;
-    if (youtubeCookie) {
-      if (youtubeCookie === 'chrome' || youtubeCookie === 'firefox' || youtubeCookie === 'edge' || youtubeCookie === 'safari') {
-        args.push('--cookies-from-browser', youtubeCookie);
-      } else if (fs.existsSync(youtubeCookie)) {
-        args.push('--cookies', youtubeCookie);
+    // Use OAuth cookies or traditional cookies
+    const cookieSource = await getYtdlpCookies();
+    if (cookieSource) {
+      if (cookieSource === 'chrome' || cookieSource === 'firefox' || cookieSource === 'edge' || cookieSource === 'safari') {
+        args.push('--cookies-from-browser', cookieSource);
+      } else if (fs.existsSync(cookieSource)) {
+        args.push('--cookies', cookieSource);
       }
     }
 
@@ -333,14 +423,15 @@ async function processYouTubeVideo(contentId) {
       options.endTime = content.youTubeEndTimer;
     }
 
-    // Step 4: Download video (1080p)
+    // Step 4: Download video (highest quality available)
     localFilePath = await downloadYouTubeVideo(youtubeUrl, contentId, options);
 
-    // Step 5: Extract format details from downloaded file
+    // Step 5: Extract actual format details from downloaded file
     const stats = fs.statSync(localFilePath);
     const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
 
-    const downloadedFormat = {
+    // Get actual resolution from video file
+    let downloadedFormat = {
       resolution: '1920x1080',
       height: 1080,
       width: 1920,
@@ -348,6 +439,25 @@ async function processYouTubeVideo(contentId) {
       filesizeMB: parseFloat(fileSizeMB),
       ext: 'mp4',
     };
+
+    try {
+      const { stdout: metadataJson } = await execPromise(`ffprobe -v quiet -print_format json -show_streams "${localFilePath}"`);
+      const metadata = JSON.parse(metadataJson);
+      const videoStream = metadata.streams?.find(s => s.codec_type === 'video');
+      if (videoStream && videoStream.width && videoStream.height) {
+        downloadedFormat = {
+          resolution: `${videoStream.width}x${videoStream.height}`,
+          height: videoStream.height,
+          width: videoStream.width,
+          filesize: stats.size,
+          filesizeMB: parseFloat(fileSizeMB),
+          ext: 'mp4',
+        };
+        console.log(`[YouTube Processor] ✓ Detected resolution: ${downloadedFormat.resolution}`);
+      }
+    } catch (error) {
+      console.log('[YouTube Processor] Could not detect resolution, using default');
+    }
 
     // Step 6: Upload to S3
     youtubeVideo.downloadStatus = 'uploading';

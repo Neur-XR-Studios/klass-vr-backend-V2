@@ -3,6 +3,8 @@ const validate = require('../../middlewares/validate');
 const authValidation = require('../../validations/auth.validation');
 const authController = require('../../controllers/auth.controller');
 const auth = require('../../middlewares/auth');
+const googleOAuth = require('../../services/googleOAuth.service');
+const httpStatus = require('http-status');
 
 const router = express.Router();
 
@@ -14,6 +16,167 @@ router.post('/forgot-password', validate(authValidation.forgotPassword), authCon
 router.post('/reset-password', validate(authValidation.resetPassword), authController.resetPassword);
 router.post('/send-verification-email', auth(), authController.sendVerificationEmail);
 router.post('/verify-email', validate(authValidation.verifyEmail), authController.verifyEmail);
+
+// Google OAuth endpoints
+router.get('/google/url', async (req, res) => {
+  try {
+    // Check if already authenticated
+    if (googleOAuth.isAuthenticated()) {
+      return res.status(httpStatus.OK).json({
+        success: true,
+        message: 'Already authenticated with Google OAuth',
+        data: {
+          authenticated: true
+        }
+      });
+    }
+
+    const authUrl = googleOAuth.getAuthUrl();
+    
+    res.status(httpStatus.OK).json({
+      success: true,
+      message: 'Google OAuth authorization URL generated',
+      data: {
+        authUrl,
+        authenticated: false
+      }
+    });
+  } catch (error) {
+    console.error('[OAuth Route] Error generating auth URL:', error.message);
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Failed to generate authorization URL',
+      error: error.message
+    });
+  }
+});
+
+router.get('/google/callback', async (req, res) => {
+  try {
+    const { code, state, error } = req.query;
+
+    if (error) {
+      console.error('[OAuth Route] OAuth error:', error);
+      return res.status(httpStatus.BAD_REQUEST).json({
+        success: false,
+        message: 'OAuth authorization failed',
+        error: error
+      });
+    }
+
+    if (!code) {
+      return res.status(httpStatus.BAD_REQUEST).json({
+        success: false,
+        message: 'Authorization code is required'
+      });
+    }
+
+    // Exchange code for tokens
+    const tokens = await googleOAuth.exchangeCodeForTokens(code);
+    
+    console.log('[OAuth Route] Successfully authenticated with Google OAuth');
+
+    res.status(httpStatus.OK).json({
+      success: true,
+      message: 'Successfully authenticated with Google OAuth',
+      data: {
+        authenticated: true,
+        tokenType: tokens.token_type,
+        scope: tokens.scope,
+        expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null
+      }
+    });
+  } catch (error) {
+    console.error('[OAuth Route] Error handling OAuth callback:', error.message);
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Failed to complete OAuth authentication',
+      error: error.message
+    });
+  }
+});
+
+router.get('/google/status', async (req, res) => {
+  try {
+    const isAuthenticated = googleOAuth.isAuthenticated();
+    let tokenInfo = null;
+
+    if (isAuthenticated) {
+      try {
+        const tokens = googleOAuth.loadTokens();
+        if (tokens) {
+          tokenInfo = {
+            tokenType: tokens.token_type,
+            scope: tokens.scope,
+            expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null,
+            hasRefreshToken: !!tokens.refresh_token
+          };
+        }
+      } catch (error) {
+        console.error('[OAuth Route] Error loading token info:', error.message);
+      }
+    }
+
+    res.status(httpStatus.OK).json({
+      success: true,
+      message: 'OAuth status retrieved',
+      data: {
+        authenticated: isAuthenticated,
+        tokenInfo
+      }
+    });
+  } catch (error) {
+    console.error('[OAuth Route] Error checking OAuth status:', error.message);
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Failed to check OAuth status',
+      error: error.message
+    });
+  }
+});
+
+router.post('/google/refresh', async (req, res) => {
+  try {
+    await googleOAuth.ensureValidTokens();
+    
+    const tokens = googleOAuth.loadTokens();
+    
+    res.status(httpStatus.OK).json({
+      success: true,
+      message: 'Tokens refreshed successfully',
+      data: {
+        tokenType: tokens.token_type,
+        scope: tokens.scope,
+        expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null
+      }
+    });
+  } catch (error) {
+    console.error('[OAuth Route] Error refreshing tokens:', error.message);
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Failed to refresh tokens',
+      error: error.message
+    });
+  }
+});
+
+router.delete('/google/revoke', async (req, res) => {
+  try {
+    await googleOAuth.revokeTokens();
+    
+    res.status(httpStatus.OK).json({
+      success: true,
+      message: 'OAuth tokens revoked successfully'
+    });
+  } catch (error) {
+    console.error('[OAuth Route] Error revoking tokens:', error.message);
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).json({
+      success: false,
+      message: 'Failed to revoke tokens',
+      error: error.message
+    });
+  }
+});
 
 module.exports = router;
 
