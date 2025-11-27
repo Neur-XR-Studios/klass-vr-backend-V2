@@ -101,12 +101,16 @@ class YouTubeCookieService {
 
         const browser = await puppeteer.launch({
             headless: 'new',
-            // executablePath: config.youtube.puppeteerExecutablePath || undefined, // Allow config override or auto-detect
+            // executablePath: config.youtube.puppeteerExecutablePath || undefined,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-gpu'
+                '--disable-gpu',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process', // <- this one doesn't works in Windows
+                '--disable-extensions'
             ]
         });
 
