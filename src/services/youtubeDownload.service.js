@@ -21,25 +21,30 @@ if (!fs.existsSync(DOWNLOADS_DIR)) {
 const youtubeCookieService = require('./youtube.cookie.service');
 
 /**
- * Get cookies for yt-dlp - try automated service first, then browser, then file
+ * Get cookies for yt-dlp - Ubuntu server optimized approach
  */
 async function getYtdlpCookies() {
   try {
-    // Method 1: Try automated cookie service (User's preferred method)
-    try {
-      console.log('[YouTube Download] Checking/Refreshing cookies via automation...');
-      // Only refresh if needed (checks expiry and validity)
-      const isFresh = await youtubeCookieService.ensureFreshCookies();
-      if (isFresh) {
-        const cookiePath = youtubeCookieService.getCookiePath();
-        if (fs.existsSync(cookiePath)) {
-          console.log('[YouTube Download] ✓ Using automated cookies:', cookiePath);
-          return cookiePath;
+    // Skip automated cookie service on Ubuntu servers (Puppeteer issues)
+    if (process.platform === 'linux') {
+      console.log('[YouTube Download] Ubuntu server detected - skipping browser automation');
+    } else {
+      // Method 1: Try automated cookie service (User's preferred method) - only on non-Linux
+      try {
+        console.log('[YouTube Download] Checking/Refreshing cookies via automation...');
+        // Only refresh if needed (checks expiry and validity)
+        const isFresh = await youtubeCookieService.ensureFreshCookies();
+        if (isFresh) {
+          const cookiePath = youtubeCookieService.getCookiePath();
+          if (fs.existsSync(cookiePath)) {
+            console.log('[YouTube Download] ✓ Using automated cookies:', cookiePath);
+            return cookiePath;
+          }
         }
+      } catch (error) {
+        console.log('[YouTube Download] Automated cookie refresh failed:', error.message);
+        // Fallthrough to other methods
       }
-    } catch (error) {
-      console.log('[YouTube Download] Automated cookie refresh failed:', error.message);
-      // Fallthrough to other methods
     }
 
     // Method 2: Try browser cookies (Local dev fallback)
@@ -192,49 +197,63 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
 
     const sectionArg = options.startTime ? ` --download-sections "*${options.startTime}-${options.endTime || 'inf'}"` : '';
 
-    // Robust multi-method approach - prioritize quality with proper client selection
+    // Robust multi-method approach - Ubuntu server optimized
     const downloadMethods = [
       {
         name: 'Best Quality (TV Client)',
         format: 'bv*[height<=2160]+ba/b',
         client: 'youtube:player_client=tv_embedded',
         ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        useCookies: true
+        useCookies: true,
+        runtime: 'node' // Use Node.js for JavaScript execution
       },
       {
         name: 'Mixed Quality (Web Client)',
         format: 'bv*[height<=2160]+ba/b',
         client: 'youtube:player_client=web',
         ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        useCookies: true
+        useCookies: true,
+        runtime: 'node'
       },
       {
         name: 'iOS Client (High Quality)',
         format: 'bv*[height<=1080]+ba/b',
         client: 'youtube:player_client=ios',
         ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-        useCookies: true
+        useCookies: true,
+        runtime: 'node'
       },
       {
         name: 'High Quality (Android SDK-less)',
         format: 'bv*[height<=1080]+ba/b',
         client: 'youtube:player_client=android,youtube:player_skip=configs',
         ua: 'com.google.android.youtube/19.45.38 (Linux; U; Android 13) gzip',
-        useCookies: false
+        useCookies: false,
+        runtime: 'node'
       },
       {
         name: 'Android Embedded',
         format: 'bv*+ba/b',
         client: 'youtube:player_client=android_embedded',
         ua: 'com.google.android.youtube/19.45.38 (Linux; U; Android 13) gzip',
-        useCookies: false
+        useCookies: false,
+        runtime: 'node'
+      },
+      {
+        name: 'Ubuntu Fallback (No JS Runtime)',
+        format: 'best[height<=720]/best',
+        client: 'youtube:player_client=android,youtube:player_skip=webpage,configs',
+        ua: 'com.google.android.youtube/19.45.38 (Linux; U; Android 13) gzip',
+        useCookies: false,
+        runtime: null // Skip JavaScript runtime on Ubuntu
       },
       {
         name: 'Best Available (Fallback)',
         format: 'b',
         client: 'youtube:player_client=android,youtube:player_skip=webpage,configs',
         ua: 'com.google.android.youtube/19.45.38 (Linux; U; Android 13) gzip',
-        useCookies: false
+        useCookies: false,
+        runtime: null
       }
     ];
 
@@ -248,6 +267,10 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
         const methodCookieArg = method.useCookies && cookieSource ?
           (cookieSource.includes('chrome') || cookieSource.includes('firefox') || cookieSource.includes('edge') || cookieSource.includes('safari') ?
             ` --cookies-from-browser ${cookieSource}` : ` --cookies "${cookieSource}"`) : '';
+
+        // Add JavaScript runtime for Ubuntu servers
+        const runtimeArg = method.runtime && process.platform === 'linux' ? 
+          ` --extractor-args "youtube:js_url=${path.join(__dirname, '../../youtube-js-runtime.js')}"` : '';
 
         const methodCmd = [
           ytDlpBin,
@@ -264,6 +287,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
           retryArgs,
           ipArg,
           ` --extractor-args "${method.client}"`,
+          runtimeArg,
           ffmpegArg,
           `"${finalUrl}"`
         ].join(' ');
