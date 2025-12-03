@@ -111,13 +111,23 @@ echo "Step 4: Installing JavaScript Runtime (Deno) for yt-dlp..."
 echo "YouTube requires a JS runtime to solve challenges"
 
 if [[ "$OS" == "linux" ]]; then
+    # Install unzip first (required for Deno installation)
+    if ! command -v unzip &> /dev/null; then
+        echo "Installing unzip (required for Deno)..."
+        sudo apt-get update && sudo apt-get install -y unzip
+    fi
+    
     if ! command -v deno &> /dev/null; then
         echo "Installing Deno..."
         curl -fsSL https://deno.land/install.sh | sh
         export DENO_INSTALL="$HOME/.deno"
         export PATH="$DENO_INSTALL/bin:$PATH"
-        echo 'export DENO_INSTALL="$HOME/.deno"' >> ~/.bashrc
-        echo 'export PATH="$DENO_INSTALL/bin:$PATH"' >> ~/.bashrc
+        
+        # Add to bashrc if not already there
+        if ! grep -q 'DENO_INSTALL' ~/.bashrc; then
+            echo 'export DENO_INSTALL="$HOME/.deno"' >> ~/.bashrc
+            echo 'export PATH="$DENO_INSTALL/bin:$PATH"' >> ~/.bashrc
+        fi
         echo "✓ Deno installed"
     else
         echo "✓ Deno already installed: $(deno --version | head -n1)"
@@ -137,6 +147,12 @@ export DENO_INSTALL="$HOME/.deno"
 export PATH="$DENO_INSTALL/bin:$PATH"
 if command -v deno &> /dev/null; then
     echo "✓ Deno version: $(deno --version | head -n1)"
+else
+    echo "✗ Deno installation failed - trying alternative method..."
+    # Try snap as fallback
+    if command -v snap &> /dev/null; then
+        sudo snap install deno 2>/dev/null && echo "✓ Deno installed via snap" || true
+    fi
 fi
 
 echo ""
