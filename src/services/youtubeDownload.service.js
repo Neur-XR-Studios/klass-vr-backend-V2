@@ -208,53 +208,54 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
 
     // Step 6: Define download strategies (ordered by quality preference)
     // These strategies are optimized for server environments with potential IP blocks
+    // IMPORTANT: android_vr works best for server IPs - tested and confirmed working
     const downloadStrategies = [
       {
         name: 'Android VR (Best for servers)',
         format: 'bestvideo[height<=2160]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=android_vr,youtube:player_skip=webpage,configs"',
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=android_vr"',
         description: 'Android VR client bypasses most restrictions'
+      },
+      {
+        name: 'Android VR (MP4 only)',
+        format: 'bestvideo[ext=mp4][height<=2160]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=android_vr"',
+        description: 'Android VR with MP4 preference'
       },
       {
         name: 'TV Embedded (High Quality)',
         format: 'bestvideo[height<=2160]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=tv_embedded,youtube:player_skip=webpage"',
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=tv_embedded"',
         description: 'TV embedded client for high quality'
       },
       {
-        name: 'Media Connect (Server Friendly)',
+        name: 'Android (Standard)',
         format: 'bestvideo[height<=1080]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=mediaconnect,youtube:player_skip=webpage,configs"',
-        description: 'Media Connect client for servers'
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=android"',
+        description: 'Standard Android client'
       },
       {
-        name: 'Android Music (Fallback)',
+        name: 'iOS (Alternative)',
         format: 'bestvideo[height<=1080]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=android_music,youtube:player_skip=webpage,configs"',
-        description: 'Android Music client'
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=ios"',
+        description: 'iOS client'
       },
       {
-        name: 'iOS Music (Alternative)',
+        name: 'Web (Default)',
         format: 'bestvideo[height<=1080]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=ios_music,youtube:player_skip=webpage,configs"',
-        description: 'iOS Music client'
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=web"',
+        description: 'Web client'
       },
       {
-        name: 'Web Creator (Embedded)',
-        format: 'bestvideo[height<=1080]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=web_creator,youtube:player_skip=webpage"',
-        description: 'Web Creator client'
-      },
-      {
-        name: 'Android Testsuite',
+        name: 'mweb (Mobile)',
         format: 'bestvideo[height<=720]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=android_testsuite,youtube:player_skip=webpage,configs"',
-        description: 'Android testsuite client'
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=mweb"',
+        description: 'Mobile web client'
       },
       {
         name: 'Any Quality (Last Resort)',
         format: 'best',
-        args: '--extractor-args "youtube:player_skip=webpage,configs"',
+        args: '',
         description: 'Any available format'
       }
     ];
@@ -263,6 +264,18 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     const proxyArg = config.youtube?.proxy ? `--proxy "${config.youtube.proxy}"` : '';
     if (proxyArg) {
       console.log('[YouTube Download] ✓ Using proxy:', config.youtube.proxy.replace(/:[^:@]+@/, ':***@'));
+    }
+
+    // Check for cookie file (exported from browser - most reliable method)
+    const cookieFile = config.youtube?.cookieFile || path.join(process.cwd(), 'youtube-cookies.txt');
+    let cookieArg = '';
+    if (fs.existsSync(cookieFile)) {
+      cookieArg = `--cookies "${cookieFile}"`;
+      console.log('[YouTube Download] ✓ Using cookie file:', cookieFile);
+    } else {
+      console.log('[YouTube Download] ⚠ No cookie file found at:', cookieFile);
+      console.log('[YouTube Download] ⚠ To fix bot detection, export cookies from your browser:');
+      console.log('[YouTube Download]   yt-dlp --cookies-from-browser chrome --cookies youtube-cookies.txt "https://youtube.com" --skip-download');
     }
 
     // Common arguments for reliability
@@ -277,9 +290,9 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       '--force-ipv4',
       '--geo-bypass',
       '--no-check-certificates',
-      '--extractor-args "youtube:player_skip=webpage"', // Skip webpage to avoid bot detection
       `--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"`,
       proxyArg,
+      cookieArg,
     ].filter(Boolean).join(' ');
 
     let downloadSuccess = false;
