@@ -84,6 +84,8 @@ module.exports = {
     email: process.env.YOUTUBE_EMAIL,
     password: process.env.YOUTUBE_PASSWORD,
     cookiePath: process.env.YOUTUBE_COOKIE_PATH || path.join(__dirname, '../../youtube-cookies.txt'),
+    // Proxy for bypassing IP blocks (format: socks5://user:pass@host:port or http://host:port)
+    proxy: process.env.YOUTUBE_PROXY || null,
   },
   google: {
     clientId: envVars.GOOGLE_OAUTH_CLIENT_ID,

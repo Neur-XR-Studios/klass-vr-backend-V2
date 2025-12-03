@@ -5,6 +5,7 @@ const path = require('path');
 const os = require('os');
 const { uploadToS3, deleteLocalFile } = require('./s3.service');
 const { Content, YouTubeVideo } = require('../models');
+const config = require('../config/config');
 
 const execPromise = promisify(exec);
 
@@ -206,62 +207,68 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       : '';
 
     // Step 6: Define download strategies (ordered by quality preference)
-    // These are the PERMANENT working methods that don't require cookies
+    // These strategies are optimized for server environments with potential IP blocks
     const downloadStrategies = [
       {
-        name: '4K/Best Quality (Default)',
-        format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
-        args: '--merge-output-format mp4',
-        description: 'Highest quality with merge'
-      },
-      {
-        name: 'Best MP4 (Single File)',
-        format: 'best[ext=mp4]/best',
-        args: '',
-        description: 'Best single MP4 file'
-      },
-      {
-        name: '1080p+ (Web Client)',
+        name: 'Android VR (Best for servers)',
         format: 'bestvideo[height<=2160]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=web"',
-        description: 'Web client for high quality'
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=android_vr,youtube:player_skip=webpage,configs"',
+        description: 'Android VR client bypasses most restrictions'
       },
       {
-        name: '1080p (TV Embedded)',
+        name: 'TV Embedded (High Quality)',
+        format: 'bestvideo[height<=2160]+bestaudio/best',
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=tv_embedded,youtube:player_skip=webpage"',
+        description: 'TV embedded client for high quality'
+      },
+      {
+        name: 'Media Connect (Server Friendly)',
         format: 'bestvideo[height<=1080]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=tv_embedded"',
-        description: 'TV client often bypasses restrictions'
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=mediaconnect,youtube:player_skip=webpage,configs"',
+        description: 'Media Connect client for servers'
       },
       {
-        name: '1080p (iOS Client)',
+        name: 'Android Music (Fallback)',
         format: 'bestvideo[height<=1080]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=ios"',
-        description: 'iOS client for compatibility'
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=android_music,youtube:player_skip=webpage,configs"',
+        description: 'Android Music client'
       },
       {
-        name: '720p (Android Client)',
+        name: 'iOS Music (Alternative)',
+        format: 'bestvideo[height<=1080]+bestaudio/best',
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=ios_music,youtube:player_skip=webpage,configs"',
+        description: 'iOS Music client'
+      },
+      {
+        name: 'Web Creator (Embedded)',
+        format: 'bestvideo[height<=1080]+bestaudio/best',
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=web_creator,youtube:player_skip=webpage"',
+        description: 'Web Creator client'
+      },
+      {
+        name: 'Android Testsuite',
         format: 'bestvideo[height<=720]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=android"',
-        description: 'Android client fallback'
-      },
-      {
-        name: 'mweb Client (Fallback)',
-        format: 'bestvideo+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=mweb"',
-        description: 'Mobile web client'
+        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=android_testsuite,youtube:player_skip=webpage,configs"',
+        description: 'Android testsuite client'
       },
       {
         name: 'Any Quality (Last Resort)',
         format: 'best',
-        args: '',
+        args: '--extractor-args "youtube:player_skip=webpage,configs"',
         description: 'Any available format'
       }
     ];
 
+    // Check for proxy configuration
+    const proxyArg = config.youtube?.proxy ? `--proxy "${config.youtube.proxy}"` : '';
+    if (proxyArg) {
+      console.log('[YouTube Download] ✓ Using proxy:', config.youtube.proxy.replace(/:[^:@]+@/, ':***@'));
+    }
+
     // Common arguments for reliability
     const commonArgs = [
       '--no-playlist',
-      '--no-warnings',
+      '--no-warnings', 
       '--progress',
       '--newline',
       '--retries 10',
@@ -270,8 +277,10 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       '--force-ipv4',
       '--geo-bypass',
       '--no-check-certificates',
+      '--extractor-args "youtube:player_skip=webpage"', // Skip webpage to avoid bot detection
       `--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"`,
-    ].join(' ');
+      proxyArg,
+    ].filter(Boolean).join(' ');
 
     let downloadSuccess = false;
     let lastError = null;
