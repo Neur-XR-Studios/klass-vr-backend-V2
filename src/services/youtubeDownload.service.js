@@ -207,56 +207,37 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       : '';
 
     // Step 6: Define download strategies (ordered by quality preference)
-    // These strategies are optimized for server environments with potential IP blocks
-    // IMPORTANT: android_vr works best for server IPs - tested and confirmed working
+    // Using flexible format selection that falls back gracefully
     const downloadStrategies = [
       {
-        name: 'Android VR (Best for servers)',
-        format: 'bestvideo[height<=2160]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=android_vr"',
-        description: 'Android VR client bypasses most restrictions'
+        name: 'Best Quality (Auto)',
+        format: 'bv*+ba/b',  // Best video + best audio, or best combined
+        args: '--merge-output-format mp4',
+        description: 'Automatic best quality selection'
       },
       {
-        name: 'Android VR (MP4 only)',
-        format: 'bestvideo[ext=mp4][height<=2160]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=android_vr"',
-        description: 'Android VR with MP4 preference'
+        name: 'Best Video+Audio',
+        format: 'bestvideo+bestaudio/best',
+        args: '--merge-output-format mp4',
+        description: 'Best separate streams merged'
       },
       {
-        name: 'TV Embedded (High Quality)',
-        format: 'bestvideo[height<=2160]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=tv_embedded"',
-        description: 'TV embedded client for high quality'
+        name: 'Best MP4',
+        format: 'best[ext=mp4]/best',
+        args: '',
+        description: 'Best MP4 format available'
       },
       {
-        name: 'Android (Standard)',
-        format: 'bestvideo[height<=1080]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=android"',
-        description: 'Standard Android client'
-      },
-      {
-        name: 'iOS (Alternative)',
-        format: 'bestvideo[height<=1080]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=ios"',
-        description: 'iOS client'
-      },
-      {
-        name: 'Web (Default)',
-        format: 'bestvideo[height<=1080]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=web"',
-        description: 'Web client'
-      },
-      {
-        name: 'mweb (Mobile)',
-        format: 'bestvideo[height<=720]+bestaudio/best',
-        args: '--merge-output-format mp4 --extractor-args "youtube:player_client=mweb"',
-        description: 'Mobile web client'
-      },
-      {
-        name: 'Any Quality (Last Resort)',
+        name: 'Any Format',
         format: 'best',
         args: '',
         description: 'Any available format'
+      },
+      {
+        name: 'Worst Quality (Fallback)',
+        format: 'worst',
+        args: '',
+        description: 'Lowest quality as last resort'
       }
     ];
 
@@ -290,6 +271,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       '--force-ipv4',
       '--geo-bypass',
       '--no-check-certificates',
+      '--remote-components ejs:github',  // Required for JS challenge solving
       `--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"`,
       proxyArg,
       cookieArg,
