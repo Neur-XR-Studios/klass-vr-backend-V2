@@ -107,7 +107,40 @@ else
 fi
 
 echo ""
-echo "Step 4: Installing PO Token Plugin (bgutil-ytdlp-pot-provider)..."
+echo "Step 4: Installing JavaScript Runtime (Deno) for yt-dlp..."
+echo "YouTube requires a JS runtime to solve challenges"
+
+if [[ "$OS" == "linux" ]]; then
+    if ! command -v deno &> /dev/null; then
+        echo "Installing Deno..."
+        curl -fsSL https://deno.land/install.sh | sh
+        export DENO_INSTALL="$HOME/.deno"
+        export PATH="$DENO_INSTALL/bin:$PATH"
+        echo 'export DENO_INSTALL="$HOME/.deno"' >> ~/.bashrc
+        echo 'export PATH="$DENO_INSTALL/bin:$PATH"' >> ~/.bashrc
+        echo "✓ Deno installed"
+    else
+        echo "✓ Deno already installed: $(deno --version | head -n1)"
+    fi
+else
+    # macOS
+    if ! command -v deno &> /dev/null; then
+        brew install deno 2>/dev/null || curl -fsSL https://deno.land/install.sh | sh
+        echo "✓ Deno installed"
+    else
+        echo "✓ Deno already installed"
+    fi
+fi
+
+# Verify deno
+export DENO_INSTALL="$HOME/.deno"
+export PATH="$DENO_INSTALL/bin:$PATH"
+if command -v deno &> /dev/null; then
+    echo "✓ Deno version: $(deno --version | head -n1)"
+fi
+
+echo ""
+echo "Step 5: Installing PO Token Plugin (bgutil-ytdlp-pot-provider)..."
 echo "This is the RECOMMENDED way to handle YouTube authentication without cookies"
 
 if [[ "$OS" == "linux" ]]; then
@@ -126,11 +159,11 @@ else
 fi
 
 echo ""
-echo "Step 5: Verifying installation..."
+echo "Step 6: Verifying installation..."
 echo ""
 
-# Refresh PATH
-export PATH="$HOME/.local/bin:$PATH"
+# Refresh PATH with all required directories
+export PATH="$HOME/.local/bin:$HOME/.deno/bin:$PATH"
 
 # Test yt-dlp
 echo "Testing yt-dlp with a sample video..."
@@ -150,11 +183,18 @@ echo ""
 echo "Installed components:"
 echo "  • yt-dlp: $(yt-dlp --version 2>/dev/null || echo 'restart shell and check')"
 echo "  • ffmpeg: $(command -v ffmpeg &>/dev/null && echo 'installed' || echo 'not found')"
+echo "  • deno: $(deno --version 2>/dev/null | head -n1 || echo 'restart shell and check')"
 echo "  • PO Token Plugin: bgutil-ytdlp-pot-provider"
 echo ""
-echo "IMPORTANT: If yt-dlp is not found, run:"
-echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
-echo "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc"
+echo "IMPORTANT: Run these commands to update your PATH:"
+echo "  export PATH=\"\$HOME/.local/bin:\$HOME/.deno/bin:\$PATH\""
+echo ""
+echo "To make permanent, add to ~/.bashrc:"
+echo "  echo 'export PATH=\"\$HOME/.local/bin:\$HOME/.deno/bin:\$PATH\"' >> ~/.bashrc"
+echo "  source ~/.bashrc"
+echo ""
+echo "CRITICAL: PM2 needs the updated PATH. Run:"
+echo "  pm2 delete app && pm2 start ecosystem.config.json"
 echo ""
 echo "Your YouTube downloader is now configured for PERMANENT, HIGH-QUALITY downloads!"
 echo "No cookies or manual authentication required."

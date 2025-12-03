@@ -2,10 +2,28 @@ const { exec } = require('child_process');
 const { promisify } = require('util');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { uploadToS3, deleteLocalFile } = require('./s3.service');
 const { Content, YouTubeVideo } = require('../models');
 
 const execPromise = promisify(exec);
+
+// Ensure PATH includes yt-dlp and deno locations for Ubuntu
+const HOME = os.homedir();
+const EXTENDED_PATH = [
+  `${HOME}/.local/bin`,
+  `${HOME}/.deno/bin`,
+  '/usr/local/bin',
+  '/usr/bin',
+  process.env.PATH
+].join(':');
+
+// Environment for child processes
+const EXEC_ENV = {
+  ...process.env,
+  PATH: EXTENDED_PATH,
+  DENO_INSTALL: `${HOME}/.deno`
+};
 
 // Temp downloads directory
 const DOWNLOADS_DIR = path.resolve(process.cwd(), 'temp-youtube-downloads');
@@ -21,7 +39,7 @@ if (!fs.existsSync(DOWNLOADS_DIR)) {
  */
 async function checkPOTokenPlugin() {
   try {
-    const { stdout } = await execPromise('yt-dlp --list-plugins 2>/dev/null || echo "no-plugins"');
+    const { stdout } = await execPromise('yt-dlp --list-plugins 2>/dev/null || echo "no-plugins"', { env: EXEC_ENV });
     const hasPOT = stdout.includes('pot') || stdout.includes('bgutil');
     if (hasPOT) {
       console.log('[YouTube Download] ✓ PO Token plugin detected');
@@ -45,7 +63,7 @@ async function ensurePOTokenPlugin() {
     
     // Try pip install first (works on both Mac and Ubuntu)
     try {
-      await execPromise('pip3 install bgutil-ytdlp-pot-provider --quiet', { timeout: 60000 });
+      await execPromise('pip3 install bgutil-ytdlp-pot-provider --quiet --break-system-packages 2>/dev/null || pip3 install bgutil-ytdlp-pot-provider --quiet', { timeout: 60000, env: EXEC_ENV });
       console.log('[YouTube Download] ✓ PO Token plugin installed via pip');
       return true;
     } catch (pipError) {
@@ -54,7 +72,7 @@ async function ensurePOTokenPlugin() {
 
     // Try pipx as fallback
     try {
-      await execPromise('pipx inject yt-dlp bgutil-ytdlp-pot-provider', { timeout: 60000 });
+      await execPromise('pipx inject yt-dlp bgutil-ytdlp-pot-provider', { timeout: 60000, env: EXEC_ENV });
       console.log('[YouTube Download] ✓ PO Token plugin installed via pipx');
       return true;
     } catch (pipxError) {
@@ -128,13 +146,22 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
   try {
     // Step 1: Verify yt-dlp is installed and get version
     console.log('[YouTube Download] Checking yt-dlp...');
+    console.log('[YouTube Download] Using PATH:', EXTENDED_PATH.substring(0, 100) + '...');
     let ytDlpVersion = 'unknown';
     try {
-      const { stdout } = await execPromise('yt-dlp --version');
+      const { stdout } = await execPromise('yt-dlp --version', { env: EXEC_ENV });
       ytDlpVersion = stdout.trim();
       console.log('[YouTube Download] ✓ yt-dlp version:', ytDlpVersion);
     } catch (e) {
       throw new Error('yt-dlp is not installed. Install with: pip3 install -U yt-dlp');
+    }
+    
+    // Check for deno (JS runtime)
+    try {
+      const { stdout: denoVersion } = await execPromise('deno --version', { env: EXEC_ENV });
+      console.log('[YouTube Download] ✓ Deno available:', denoVersion.split('\n')[0]);
+    } catch {
+      console.log('[YouTube Download] ⚠ Deno not found - YouTube may require JS runtime');
     }
 
     // Step 2: Check/Install PO Token plugin (recommended for permanent solution)
@@ -143,7 +170,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     // Step 3: Check ffmpeg
     let ffmpegAvailable = false;
     try {
-      await execPromise('ffmpeg -version');
+      await execPromise('ffmpeg -version', { env: EXEC_ENV });
       ffmpegAvailable = true;
       console.log('[YouTube Download] ✓ ffmpeg available');
     } catch {
@@ -157,7 +184,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     try {
       const { stdout: infoJson } = await execPromise(
         `yt-dlp --dump-json --no-playlist "${finalUrl}"`,
-        { timeout: 30000, maxBuffer: 1024 * 1024 * 10 }
+        { timeout: 30000, maxBuffer: 1024 * 1024 * 10, env: EXEC_ENV }
       );
       const info = JSON.parse(infoJson);
       videoTitle = info.title || 'Unknown';
@@ -271,7 +298,8 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
         await new Promise((resolve, reject) => {
           const child = exec(cmd, { 
             maxBuffer: 1024 * 1024 * 100,
-            timeout: 600000 // 10 minute timeout
+            timeout: 600000, // 10 minute timeout
+            env: EXEC_ENV
           });
 
           let lastProgress = '';
@@ -345,7 +373,8 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     // Get actual resolution
     try {
       const { stdout: metadataJson } = await execPromise(
-        `ffprobe -v quiet -print_format json -show_streams "${outputTemplate}"`
+        `ffprobe -v quiet -print_format json -show_streams "${outputTemplate}"`,
+        { env: EXEC_ENV }
       );
       const metadata = JSON.parse(metadataJson);
       const videoStream = metadata.streams?.find(s => s.codec_type === 'video');
@@ -386,7 +415,8 @@ async function getVideoMetadata(youtubeUrl) {
     const cmd = `yt-dlp --dump-json --no-playlist --no-warnings "${youtubeUrl}"`;
     const { stdout } = await execPromise(cmd, {
       maxBuffer: 1024 * 1024 * 10, // 10MB buffer
-      timeout: 30000
+      timeout: 30000,
+      env: EXEC_ENV
     });
 
     const metadata = JSON.parse(stdout);
@@ -494,7 +524,7 @@ async function processYouTubeVideo(contentId) {
     };
 
     try {
-      const { stdout: metadataJson } = await execPromise(`ffprobe -v quiet -print_format json -show_streams "${localFilePath}"`);
+      const { stdout: metadataJson } = await execPromise(`ffprobe -v quiet -print_format json -show_streams "${localFilePath}"`, { env: EXEC_ENV });
       const metadata = JSON.parse(metadataJson);
       const videoStream = metadata.streams?.find(s => s.codec_type === 'video');
       if (videoStream && videoStream.width && videoStream.height) {
