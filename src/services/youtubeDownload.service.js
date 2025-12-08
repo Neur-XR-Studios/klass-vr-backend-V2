@@ -6,6 +6,7 @@ const os = require('os');
 const { uploadToS3, deleteLocalFile } = require('./s3.service');
 const { Content, YouTubeVideo } = require('../models');
 const config = require('../config/config');
+const cookieManager = require('./youtubeCookieManager.service');
 
 const execPromise = promisify(exec);
 
@@ -247,16 +248,36 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       console.log('[YouTube Download] ✓ Using proxy:', config.youtube.proxy.replace(/:[^:@]+@/, ':***@'));
     }
 
-    // Check for cookie file (exported from browser - most reliable method)
+    // Check if BgUtils POT Provider is running (Docker container on port 4416)
+    // This is the RECOMMENDED cookie-free method
+    let potProviderAvailable = false;
+    try {
+      const http = require('http');
+      await new Promise((resolve, reject) => {
+        const req = http.get('http://127.0.0.1:4416/', { timeout: 2000 }, (res) => {
+          potProviderAvailable = res.statusCode === 200 || res.statusCode === 404;
+          resolve();
+        });
+        req.on('error', () => resolve());
+        req.on('timeout', () => { req.destroy(); resolve(); });
+      });
+    } catch (e) {
+      // POT provider not available
+    }
+
+    if (potProviderAvailable) {
+      console.log('[YouTube Download] ✓ BgUtils POT Provider detected on port 4416 (NO COOKIES NEEDED!)');
+    } else {
+      console.log('[YouTube Download] ⚠ BgUtils POT Provider not running');
+      console.log('[YouTube Download]   Start it with: docker run --name bgutil-provider -d -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider');
+    }
+
+    // Check for cookie file as fallback (only if POT provider not available)
     const cookieFile = config.youtube?.cookieFile || path.join(process.cwd(), 'youtube-cookies.txt');
     let cookieArg = '';
-    if (fs.existsSync(cookieFile)) {
+    if (!potProviderAvailable && fs.existsSync(cookieFile)) {
       cookieArg = `--cookies "${cookieFile}"`;
-      console.log('[YouTube Download] ✓ Using cookie file:', cookieFile);
-    } else {
-      console.log('[YouTube Download] ⚠ No cookie file found at:', cookieFile);
-      console.log('[YouTube Download] ⚠ To fix bot detection, export cookies from your browser:');
-      console.log('[YouTube Download]   yt-dlp --cookies-from-browser chrome --cookies youtube-cookies.txt "https://youtube.com" --skip-download');
+      console.log('[YouTube Download] ✓ Using cookie file as fallback:', cookieFile);
     }
 
     // Common arguments for reliability
@@ -581,6 +602,9 @@ async function processYouTubeVideo(contentId) {
     return s3Url;
   } catch (error) {
     console.error('[YouTube Processor] Fatal error:', error.message);
+
+    // Check if this is a cookie expiry error and send notification
+    await cookieManager.handleYouTubeError(error.message);
 
     // Update YouTubeVideo status to failed
     if (youtubeVideo) {

@@ -34,6 +34,9 @@ const envVarsSchema = Joi.object()
     GOOGLE_OAUTH_CLIENT_ID: Joi.string().allow(''),
     GOOGLE_OAUTH_CLIENT_SECRET: Joi.string().allow(''),
     GOOGLE_OAUTH_REDIRECT_URI: Joi.string().allow(''),
+    ADMIN_NOTIFICATION_EMAIL: Joi.string().allow(''),
+    ADMIN_SECRET: Joi.string().allow(''),
+    SERVER_URL: Joi.string().allow(''),
 
   })
   .unknown();
@@ -91,5 +94,10 @@ module.exports = {
     clientId: envVars.GOOGLE_OAUTH_CLIENT_ID,
     clientSecret: envVars.GOOGLE_OAUTH_CLIENT_SECRET,
     redirectUri: envVars.GOOGLE_OAUTH_REDIRECT_URI || 'http://localhost:3000/auth/google/callback',
+  },
+  admin: {
+    notificationEmail: envVars.ADMIN_NOTIFICATION_EMAIL,
+    secret: envVars.ADMIN_SECRET,
+    serverUrl: envVars.SERVER_URL,
   },
 };

@@ -1,5 +1,6 @@
 const { Session, Content, Assessment, Device } = require("../models");
 const catchAsync = require("../utils/catchAsync");
+const { getSignedS3Url } = require("../services/s3.service");
 
 const getDeployedSessionsWithAssessmentsAndContents = catchAsync(
   async (req, res) => {
@@ -34,12 +35,13 @@ const getDeployedSessionsWithAssessmentsAndContents = catchAsync(
               }
             });
 
-            // Use S3 URL from download instead of URL conversion
+            // Use pre-signed S3 URL for AVPro Video Player compatibility
             if (updatedContent.youTubeDownloadedUrl) {
-              updatedContent.youTubePlayableUrl = updatedContent.youTubeDownloadedUrl;
+              // Generate a pre-signed URL (valid for 6 hours) for AVPro to access
+              updatedContent.youTubePlayableUrl = await getSignedS3Url(updatedContent.youTubeDownloadedUrl);
             } else if (updatedContent.youTubeUrl) {
-              // If not downloaded yet, return original URL
-              // Frontend should handle pending/downloading states
+              // If not downloaded yet, return null
+              // Frontend/VR app should handle pending/downloading states
               updatedContent.youTubePlayableUrl = null;
               console.log('[Experience] YouTube video not yet downloaded for content:', updatedContent._id);
             }

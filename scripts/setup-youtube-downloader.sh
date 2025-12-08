@@ -2,9 +2,16 @@
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # YouTube Downloader Setup Script
-# This script installs all required dependencies for permanent YouTube downloading
+# This script installs yt-dlp, ffmpeg, Deno, and sets up the BgUtils POT Provider
+# for permanent YouTube downloads WITHOUT cookies
 # Works on both macOS and Ubuntu (including Ubuntu 24.04 with externally managed Python)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+set -e
+
+echo "=========================================="
+echo "YouTube Downloader Setup (Cookie-Free)"
+echo "=========================================="
 
 echo "═══════════════════════════════════════════════════════════════════════════════"
 echo "YouTube Downloader Setup - Permanent Solution"
@@ -175,7 +182,58 @@ else
 fi
 
 echo ""
-echo "Step 6: Verifying installation..."
+echo "Step 6: Setting up BgUtils POT Provider HTTP Server (Docker)..."
+echo "This generates PO tokens automatically - NO COOKIES NEEDED!"
+
+if [[ "$OS" == "linux" ]]; then
+    # Check if Docker is installed
+    if command -v docker &> /dev/null; then
+        echo "✓ Docker is installed"
+        
+        # Stop existing container if running
+        docker stop bgutil-provider 2>/dev/null || true
+        docker rm bgutil-provider 2>/dev/null || true
+        
+        # Start the POT provider container
+        echo "Starting BgUtils POT Provider container..."
+        docker run --name bgutil-provider -d -p 4416:4416 --restart unless-stopped brainicism/bgutil-ytdlp-pot-provider
+        
+        if docker ps | grep -q bgutil-provider; then
+            echo "✓ BgUtils POT Provider is running on port 4416"
+        else
+            echo "⚠ Failed to start POT Provider container"
+        fi
+    else
+        echo "⚠ Docker not installed. Installing Docker..."
+        # Install Docker
+        sudo apt-get update
+        sudo apt-get install -y apt-transport-https ca-certificates curl software-properties-common
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+        sudo apt-get update
+        sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+        sudo usermod -aG docker $USER
+        echo "✓ Docker installed. You may need to log out and back in for group changes."
+        
+        # Start the container
+        sudo docker run --name bgutil-provider -d -p 4416:4416 --restart unless-stopped brainicism/bgutil-ytdlp-pot-provider
+        echo "✓ BgUtils POT Provider started"
+    fi
+else
+    # macOS - use Docker Desktop if available
+    if command -v docker &> /dev/null; then
+        docker stop bgutil-provider 2>/dev/null || true
+        docker rm bgutil-provider 2>/dev/null || true
+        docker run --name bgutil-provider -d -p 4416:4416 --restart unless-stopped brainicism/bgutil-ytdlp-pot-provider
+        echo "✓ BgUtils POT Provider is running on port 4416"
+    else
+        echo "⚠ Docker not found. Install Docker Desktop for macOS to use the POT Provider."
+        echo "  Download from: https://www.docker.com/products/docker-desktop"
+    fi
+fi
+
+echo ""
+echo "Step 7: Verifying installation..."
 echo ""
 
 # Refresh PATH with all required directories
@@ -201,6 +259,7 @@ echo "  • yt-dlp: $(yt-dlp --version 2>/dev/null || echo 'restart shell and ch
 echo "  • ffmpeg: $(command -v ffmpeg &>/dev/null && echo 'installed' || echo 'not found')"
 echo "  • deno: $(deno --version 2>/dev/null | head -n1 || echo 'restart shell and check')"
 echo "  • PO Token Plugin: bgutil-ytdlp-pot-provider"
+echo "  • BgUtils POT Provider: $(docker ps --filter name=bgutil-provider --format '{{.Status}}' 2>/dev/null || echo 'check docker')"
 echo ""
 echo "IMPORTANT: Run these commands to update your PATH:"
 echo "  export PATH=\"\$HOME/.local/bin:\$HOME/.deno/bin:\$PATH\""
@@ -212,7 +271,17 @@ echo ""
 echo "CRITICAL: PM2 needs the updated PATH. Run:"
 echo "  pm2 delete app && pm2 start ecosystem.config.json"
 echo ""
-echo "Your YouTube downloader is now configured for PERMANENT, HIGH-QUALITY downloads!"
-echo "No cookies or manual authentication required."
+echo "═══════════════════════════════════════════════════════════════════════════════"
+echo "COOKIE-FREE YOUTUBE DOWNLOADS ARE NOW ENABLED!"
+echo "═══════════════════════════════════════════════════════════════════════════════"
+echo ""
+echo "The BgUtils POT Provider Docker container generates PO tokens automatically."
+echo "NO COOKIES REQUIRED - tokens never expire!"
+echo ""
+echo "To verify POT Provider is running:"
+echo "  docker ps | grep bgutil-provider"
+echo ""
+echo "To restart POT Provider if needed:"
+echo "  docker restart bgutil-provider"
 echo ""
 echo "═══════════════════════════════════════════════════════════════════════════════"

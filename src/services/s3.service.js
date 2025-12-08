@@ -1,4 +1,5 @@
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 const fs = require('fs');
 const path = require('path');
 const config = require('../config/config');
@@ -70,8 +71,40 @@ const deleteLocalFile = async (filePath) => {
   }
 };
 
+/**
+ * Generate a pre-signed URL for S3 object
+ * This allows AVPro Video Player to access the video without public bucket access
+ * @param {string} s3Url - Full S3 URL (https://bucket.s3.region.amazonaws.com/key)
+ * @param {number} expiresIn - URL expiration time in seconds (default: 6 hours)
+ * @returns {Promise<string>} - Pre-signed URL
+ */
+const getSignedS3Url = async (s3Url, expiresIn = 21600) => {
+  try {
+    if (!s3Url) return null;
+    
+    // Extract key from S3 URL
+    // Format: https://bucket.s3.region.amazonaws.com/key
+    const urlObj = new URL(s3Url);
+    const key = decodeURIComponent(urlObj.pathname.substring(1)); // Remove leading '/'
+    
+    const command = new GetObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+    });
+    
+    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn });
+    console.log('[S3] Generated signed URL for:', key);
+    
+    return signedUrl;
+  } catch (error) {
+    console.error('[S3] Error generating signed URL:', error.message);
+    return s3Url; // Fallback to original URL
+  }
+};
+
 module.exports = {
   uploadToS3,
   deleteLocalFile,
+  getSignedS3Url,
   S3_BUCKET,
 };
