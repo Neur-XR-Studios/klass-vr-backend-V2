@@ -62,7 +62,7 @@ async function ensurePOTokenPlugin() {
     if (hasPlugin) return true;
 
     console.log('[YouTube Download] Installing PO Token plugin...');
-    
+
     // Try pip install first (works on both Mac and Ubuntu)
     try {
       await execPromise('pip3 install bgutil-ytdlp-pot-provider --quiet --break-system-packages 2>/dev/null || pip3 install bgutil-ytdlp-pot-provider --quiet', { timeout: 60000, env: EXEC_ENV });
@@ -86,6 +86,74 @@ async function ensurePOTokenPlugin() {
   } catch (error) {
     console.log('[YouTube Download] PO Token plugin check failed:', error.message);
     return false;
+  }
+}
+
+/**
+ * Test if POT provider is generating valid tokens
+ * @returns {Promise<{available: boolean, working: boolean, error?: string}>}
+ */
+async function testPOTProvider() {
+  const http = require('http');
+
+  try {
+    // First check if server is available
+    const isAvailable = await new Promise((resolve) => {
+      const req = http.get('http://127.0.0.1:4416/', { timeout: 3000 }, (res) => {
+        resolve(res.statusCode === 200 || res.statusCode === 404);
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+    });
+
+    if (!isAvailable) {
+      return { available: false, working: false, error: 'POT server not running on port 4416' };
+    }
+
+    // Try to get an actual POT token for a test video ID
+    const testResult = await new Promise((resolve) => {
+      const postData = JSON.stringify({ videoId: 'dQw4w9WgXcQ' });
+      const options = {
+        hostname: '127.0.0.1',
+        port: 4416,
+        path: '/get_pot',
+        method: 'POST',
+        timeout: 10000,
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(postData)
+        }
+      };
+
+      const req = http.request(options, (res) => {
+        let data = '';
+        res.on('data', chunk => { data += chunk; });
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            if (json.po_token || json.poToken || json.token) {
+              resolve({ working: true });
+            } else if (json.error) {
+              resolve({ working: false, error: json.error });
+            } else {
+              resolve({ working: false, error: 'No token in response' });
+            }
+          } catch (e) {
+            resolve({ working: res.statusCode === 200 || res.statusCode === 202, error: data.substring(0, 100) });
+          }
+        });
+      });
+
+      req.on('error', (e) => resolve({ working: false, error: e.message }));
+      req.on('timeout', () => { req.destroy(); resolve({ working: false, error: 'Request timeout' }); });
+
+      req.write(postData);
+      req.end();
+    });
+
+    return { available: true, ...testResult };
+  } catch (error) {
+    return { available: false, working: false, error: error.message };
   }
 }
 
@@ -139,7 +207,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
   console.log('[YouTube Download] ═══════════════════════════════════════');
 
   const outputTemplate = path.join(DOWNLOADS_DIR, `${contentId}_${videoId}.mp4`);
-  
+
   // Clean up any existing file
   if (fs.existsSync(outputTemplate)) {
     fs.unlinkSync(outputTemplate);
@@ -157,7 +225,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     } catch (e) {
       throw new Error('yt-dlp is not installed. Install with: pip3 install -U yt-dlp');
     }
-    
+
     // Check for deno (JS runtime)
     try {
       const { stdout: denoVersion } = await execPromise('deno --version', { env: EXEC_ENV });
@@ -193,7 +261,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       availableFormats = info.formats || [];
       console.log('[YouTube Download] ✓ Title:', videoTitle);
       console.log('[YouTube Download] ✓ Duration:', info.duration, 'seconds');
-      
+
       // Find best available quality
       const videoFormats = availableFormats.filter(f => f.vcodec !== 'none' && f.height);
       const maxHeight = Math.max(...videoFormats.map(f => f.height || 0));
@@ -203,8 +271,8 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     }
 
     // Step 5: Build time section argument if needed
-    const sectionArg = options.startTime 
-      ? `--download-sections "*${options.startTime}-${options.endTime || 'inf'}"` 
+    const sectionArg = options.startTime
+      ? `--download-sections "*${options.startTime}-${options.endTime || 'inf'}"`
       : '';
 
     // Step 6: Define download strategies (ordered by quality preference)
@@ -248,42 +316,96 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       console.log('[YouTube Download] ✓ Using proxy:', config.youtube.proxy.replace(/:[^:@]+@/, ':***@'));
     }
 
-    // Check if BgUtils POT Provider is running (Docker container on port 4416)
-    // This is the RECOMMENDED cookie-free method
-    let potProviderAvailable = false;
-    try {
-      const http = require('http');
-      await new Promise((resolve, reject) => {
-        const req = http.get('http://127.0.0.1:4416/', { timeout: 2000 }, (res) => {
-          potProviderAvailable = res.statusCode === 200 || res.statusCode === 404;
-          resolve();
-        });
-        req.on('error', () => resolve());
-        req.on('timeout', () => { req.destroy(); resolve(); });
-      });
-    } catch (e) {
-      // POT provider not available
-    }
+    // Check if BgUtils POT Provider is running and working
+    const potStatus = await testPOTProvider();
+    const potProviderAvailable = potStatus.available && potStatus.working !== false;
 
-    if (potProviderAvailable) {
-      console.log('[YouTube Download] ✓ BgUtils POT Provider detected on port 4416 (NO COOKIES NEEDED!)');
+    if (potStatus.available) {
+      if (potStatus.working) {
+        console.log('[YouTube Download] ✓ BgUtils POT Provider running on port 4416');
+        console.log('[YouTube Download] ✓ POT token generation test: PASSED');
+      } else {
+        console.log('[YouTube Download] ⚠ BgUtils POT Provider running but may have issues');
+        console.log(`[YouTube Download]   Issue: ${potStatus.error || 'Unknown'}`);
+        console.log('[YouTube Download]   Try restarting: docker restart bgutil-provider');
+      }
     } else {
       console.log('[YouTube Download] ⚠ BgUtils POT Provider not running');
       console.log('[YouTube Download]   Start it with: docker run --name bgutil-provider -d -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider');
     }
 
-    // Check for cookie file as fallback (only if POT provider not available)
-    const cookieFile = config.youtube?.cookieFile || path.join(process.cwd(), 'youtube-cookies.txt');
-    let cookieArg = '';
-    if (!potProviderAvailable && fs.existsSync(cookieFile)) {
-      cookieArg = `--cookies "${cookieFile}"`;
-      console.log('[YouTube Download] ✓ Using cookie file as fallback:', cookieFile);
+    // Check if OAuth2 plugin is installed (another reliable method)
+    let oauth2Available = false;
+    try {
+      const { stdout: plugins } = await execPromise('yt-dlp --list-extractors 2>/dev/null | grep -i oauth || echo ""', { env: EXEC_ENV, timeout: 5000 });
+      oauth2Available = plugins.toLowerCase().includes('oauth');
+      if (oauth2Available) {
+        console.log('[YouTube Download] ✓ OAuth2 plugin detected');
+      }
+    } catch (e) {
+      // OAuth2 plugin check failed
     }
 
-    // Common arguments for reliability
-    const commonArgs = [
+    // Check for cookie file
+    const cookieFile = config.youtube?.cookieFile || path.join(process.cwd(), 'youtube-cookies.txt');
+    const cookieFileExists = fs.existsSync(cookieFile);
+    if (cookieFileExists) {
+      // Validate cookie file has content
+      const cookieStats = fs.statSync(cookieFile);
+      if (cookieStats.size > 100) {
+        console.log('[YouTube Download] ✓ Cookie file available:', cookieFile, `(${Math.round(cookieStats.size / 1024)}KB)`);
+      } else {
+        console.log('[YouTube Download] ⚠ Cookie file exists but appears empty or too small');
+      }
+    }
+
+    // Build authentication strategies (ordered by preference)
+    // Strategy 1: Use cookies file if available (most reliable when valid)
+    // Strategy 2: POT provider (requires bgutil-ytdlp-pot-provider plugin + server)  
+    // Strategy 3: OAuth2 if configured
+    // Strategy 4: No auth (may fail for restricted content)
+    const authStrategies = [];
+
+    if (cookieFileExists) {
+      authStrategies.push({
+        name: 'Cookie Authentication',
+        args: `--cookies "${cookieFile}"`,
+        description: 'Using exported browser cookies'
+      });
+    }
+
+    // POT token provider - the plugin auto-detects the server when properly installed
+    // We don't need special args, just ensure the plugin is installed
+    // The plugin will automatically use http://127.0.0.1:4416 for POT tokens
+    if (potProviderAvailable) {
+      authStrategies.push({
+        name: 'POT Token Provider',
+        args: '', // Plugin auto-detects, no special args needed
+        description: 'Using BgUtils POT Provider (auto-detected by plugin)'
+      });
+    }
+
+    if (oauth2Available) {
+      authStrategies.push({
+        name: 'OAuth2',
+        args: '--username oauth2 --password ""',
+        description: 'Using OAuth2 plugin authentication'
+      });
+    }
+
+    // Always add no-auth as last fallback
+    authStrategies.push({
+      name: 'No Authentication',
+      args: '',
+      description: 'Attempting without authentication'
+    });
+
+    console.log(`[YouTube Download] Authentication strategies available: ${authStrategies.map(s => s.name).join(', ')}`);
+
+    // Base common arguments (without auth)
+    const baseCommonArgs = [
       '--no-playlist',
-      '--no-warnings', 
+      '--no-warnings',
       '--progress',
       '--newline',
       '--retries 10',
@@ -292,92 +414,117 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       '--force-ipv4',
       '--geo-bypass',
       '--no-check-certificates',
-      '--remote-components ejs:github',  // Required for JS challenge solving
-      `--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"`,
+      `--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"`,
       proxyArg,
-      cookieArg,
-    ].filter(Boolean).join(' ');
+    ].filter(Boolean);
 
     let downloadSuccess = false;
     let lastError = null;
 
-    for (const strategy of downloadStrategies) {
+    // Try each auth strategy with each download format strategy
+    // This gives maximum flexibility for different video types and server configurations
+    authLoop: for (const authStrategy of authStrategies) {
       if (downloadSuccess) break;
 
-      console.log(`\n[YouTube Download] ▶ Trying: ${strategy.name}`);
-      console.log(`[YouTube Download]   ${strategy.description}`);
+      console.log(`\n[YouTube Download] ════════ AUTH: ${authStrategy.name} ════════`);
+      console.log(`[YouTube Download] ${authStrategy.description}`);
 
-      const cmd = [
-        'yt-dlp',
-        `-f "${strategy.format}"`,
-        strategy.args,
-        commonArgs,
-        sectionArg,
-        `-o "${outputTemplate}"`,
-        `"${finalUrl}"`
-      ].filter(Boolean).join(' ');
+      for (const formatStrategy of downloadStrategies) {
+        if (downloadSuccess) break authLoop;
 
-      console.log('[YouTube Download] Command:', cmd.substring(0, 200) + '...');
+        console.log(`\n[YouTube Download] ▶ Trying: ${formatStrategy.name}`);
+        console.log(`[YouTube Download]   ${formatStrategy.description}`);
 
-      try {
-        await new Promise((resolve, reject) => {
-          const child = exec(cmd, { 
-            maxBuffer: 1024 * 1024 * 100,
-            timeout: 600000, // 10 minute timeout
-            env: EXEC_ENV
-          });
+        // Build complete args with auth strategy
+        const commonArgs = [...baseCommonArgs, authStrategy.args].filter(Boolean).join(' ');
 
-          let lastProgress = '';
-          
-          child.stdout.on('data', (data) => {
-            const output = String(data);
-            // Show progress updates
-            if (output.includes('%')) {
-              const match = output.match(/(\d+\.?\d*)%/);
-              if (match && match[1] !== lastProgress) {
-                lastProgress = match[1];
-                process.stdout.write(`\r[YouTube Download] Progress: ${lastProgress}%`);
+        const cmd = [
+          'yt-dlp',
+          `-f "${formatStrategy.format}"`,
+          formatStrategy.args,
+          commonArgs,
+          sectionArg,
+          `-o "${outputTemplate}"`,
+          `"${finalUrl}"`
+        ].filter(Boolean).join(' ');
+
+        console.log('[YouTube Download] Command:', cmd.substring(0, 250) + '...');
+
+        try {
+          await new Promise((resolve, reject) => {
+            const child = exec(cmd, {
+              maxBuffer: 1024 * 1024 * 100,
+              timeout: 600000, // 10 minute timeout
+              env: EXEC_ENV
+            });
+
+            let lastProgress = '';
+            let stderrOutput = '';
+
+            child.stdout.on('data', (data) => {
+              const output = String(data);
+              // Show progress updates
+              if (output.includes('%')) {
+                const match = output.match(/(\d+\.?\d*)%/);
+                if (match && match[1] !== lastProgress) {
+                  lastProgress = match[1];
+                  process.stdout.write(`\r[YouTube Download] Progress: ${lastProgress}%`);
+                }
               }
-            }
+            });
+
+            child.stderr.on('data', (data) => {
+              const output = String(data);
+              stderrOutput += output;
+              if (output.includes('ERROR')) {
+                console.log('\n[YouTube Download] Error:', output.trim());
+              }
+            });
+
+            child.on('close', (code) => {
+              console.log(''); // New line after progress
+              if (code === 0) {
+                resolve();
+              } else {
+                // Check if it's a bot detection error specifically
+                if (stderrOutput.includes('Sign in to confirm') || stderrOutput.includes('bot')) {
+                  reject(new Error(`Bot detection: Exit code ${code}`));
+                } else {
+                  reject(new Error(`Exit code ${code}`));
+                }
+              }
+            });
+
+            child.on('error', reject);
           });
 
-          child.stderr.on('data', (data) => {
-            const output = String(data);
-            if (output.includes('ERROR')) {
-              console.log('\n[YouTube Download] Error:', output.trim());
-            }
-          });
-
-          child.on('close', (code) => {
-            console.log(''); // New line after progress
-            if (code === 0) {
-              resolve();
+          // Verify file exists and has content
+          if (fs.existsSync(outputTemplate)) {
+            const stats = fs.statSync(outputTemplate);
+            if (stats.size > 1000) { // At least 1KB
+              downloadSuccess = true;
+              console.log(`[YouTube Download] ✓ SUCCESS with ${authStrategy.name} + ${formatStrategy.name}`);
+              console.log(`[YouTube Download] ✓ File size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+              break authLoop;
             } else {
-              reject(new Error(`Exit code ${code}`));
+              console.log(`[YouTube Download] ✗ File too small, trying next method`);
+              fs.unlinkSync(outputTemplate);
             }
-          });
-
-          child.on('error', reject);
-        });
-
-        // Verify file exists and has content
-        if (fs.existsSync(outputTemplate)) {
-          const stats = fs.statSync(outputTemplate);
-          if (stats.size > 1000) { // At least 1KB
-            downloadSuccess = true;
-            console.log(`[YouTube Download] ✓ ${strategy.name} SUCCEEDED!`);
-            console.log(`[YouTube Download] ✓ File size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
-          } else {
-            console.log(`[YouTube Download] ✗ File too small, trying next method`);
-            fs.unlinkSync(outputTemplate);
           }
-        }
-      } catch (error) {
-        console.log(`[YouTube Download] ✗ ${strategy.name} failed:`, error.message);
-        lastError = error;
-        // Clean up partial file
-        if (fs.existsSync(outputTemplate)) {
-          try { fs.unlinkSync(outputTemplate); } catch {}
+        } catch (error) {
+          console.log(`[YouTube Download] ✗ ${formatStrategy.name} failed:`, error.message);
+          lastError = error;
+
+          // Clean up partial file
+          if (fs.existsSync(outputTemplate)) {
+            try { fs.unlinkSync(outputTemplate); } catch { }
+          }
+
+          // If it's a bot detection error, try next auth strategy (not format strategy)
+          if (error.message.includes('Bot detection')) {
+            console.log('[YouTube Download] Bot detection error - trying next auth strategy...');
+            break; // Break inner loop, continue with next auth strategy
+          }
         }
       }
     }
@@ -389,7 +536,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     // Step 7: Verify downloaded video quality
     const stats = fs.statSync(outputTemplate);
     const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
-    
+
     console.log('[YouTube Download] ═══════════════════════════════════════');
     console.log('[YouTube Download] ✓ DOWNLOAD COMPLETE!');
     console.log('[YouTube Download] ✓ File:', outputTemplate);
@@ -423,7 +570,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     console.error('[YouTube Download] ═══════════════════════════════════════');
     console.error('[YouTube Download] ✗ DOWNLOAD FAILED:', error.message);
     console.error('[YouTube Download] ═══════════════════════════════════════');
-    
+
     await Content.findByIdAndUpdate(contentId, {
       youTubeDownloadStatus: 'failed',
       youTubeDownloadError: error.message,
@@ -630,4 +777,5 @@ module.exports = {
   downloadYouTubeVideo,
   processYouTubeVideo,
   extractVideoId,
+  testPOTProvider,
 };
