@@ -7,6 +7,7 @@ const { uploadToS3, deleteLocalFile } = require('./s3.service');
 const { Content, YouTubeVideo } = require('../models');
 const config = require('../config/config');
 const cookieManager = require('./youtubeCookieManager.service');
+const googleOAuth = require('./googleOAuth.service');
 
 const execPromise = promisify(exec);
 
@@ -379,14 +380,53 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     }
 
     // Build authentication strategies (ordered by preference)
-    // Strategy 1: POT provider FIRST (most reliable for bypassing bot detection)
+    // Strategy 0: Google OAuth (HIGHEST PRIORITY - generates fresh cookies from OAuth tokens)
+    // Strategy 1: POT provider (most reliable for bypassing bot detection)
     // Strategy 2: POT + Cookies combined (for restricted videos)
     // Strategy 3: Use cookies file alone if available
-    // Strategy 4: OAuth2 if configured  
-    // Strategy 5: No auth (may fail for restricted content)
+    // Strategy 4: OAuth2 plugin if configured  
+    // Strategy 5: iOS/Android clients
+    // Strategy 6: No auth (may fail for restricted content)
     const authStrategies = [];
 
-    // POT token provider - PRIORITY 1 for bot detection bypass
+    // Check if Google OAuth is available and try to generate cookies from it
+    let oauthCookieFile = null;
+    if (googleOAuth.isAuthenticated()) {
+      try {
+        oauthCookieFile = path.join(DOWNLOADS_DIR, `oauth-cookies-${Date.now()}.txt`);
+        await googleOAuth.saveCookiesToFile(oauthCookieFile);
+        console.log('[YouTube Download] ✓ Google OAuth authenticated - generated fresh cookies');
+
+        // OAuth cookies - HIGHEST PRIORITY
+        authStrategies.push({
+          name: 'Google OAuth Cookies',
+          args: `--cookies "${oauthCookieFile}"`,
+          description: 'Using fresh cookies from Google OAuth tokens',
+          oauthCookieFile: oauthCookieFile  // Track for cleanup
+        });
+
+        // OAuth + various player clients
+        authStrategies.push({
+          name: 'Google OAuth + Web Client',
+          args: `--cookies "${oauthCookieFile}" --extractor-args "youtube:player-client=web"`,
+          description: 'OAuth cookies with web client',
+          oauthCookieFile: oauthCookieFile
+        });
+
+        authStrategies.push({
+          name: 'Google OAuth + mWeb Client',
+          args: `--cookies "${oauthCookieFile}" --extractor-args "youtube:player-client=mweb"`,
+          description: 'OAuth cookies with mobile web client',
+          oauthCookieFile: oauthCookieFile
+        });
+      } catch (oauthError) {
+        console.log('[YouTube Download] ⚠ OAuth cookie generation failed:', oauthError.message);
+      }
+    } else {
+      console.log('[YouTube Download] ⚠ Google OAuth not authenticated - skipping OAuth strategies');
+    }
+
+    // POT token provider - PRIORITY 2 for bot detection bypass
     // The plugin auto-detects the server at http://127.0.0.1:4416
     // Adding explicit extractor-args ensures it's used properly
     if (potProviderAvailable) {
@@ -640,11 +680,21 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       youTubeDownloadProgress: 100,
     });
 
+    // Cleanup OAuth cookie file if it was created
+    if (oauthCookieFile && fs.existsSync(oauthCookieFile)) {
+      try { fs.unlinkSync(oauthCookieFile); } catch { }
+    }
+
     return outputTemplate;
   } catch (error) {
     console.error('[YouTube Download] ═══════════════════════════════════════');
     console.error('[YouTube Download] ✗ DOWNLOAD FAILED:', error.message);
     console.error('[YouTube Download] ═══════════════════════════════════════');
+
+    // Cleanup OAuth cookie file if it was created
+    if (oauthCookieFile && fs.existsSync(oauthCookieFile)) {
+      try { fs.unlinkSync(oauthCookieFile); } catch { }
+    }
 
     await Content.findByIdAndUpdate(contentId, {
       youTubeDownloadStatus: 'failed',
