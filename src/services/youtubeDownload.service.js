@@ -209,6 +209,9 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     throw new Error('Invalid YouTube URL');
   }
 
+  // Declare oauthCookieFile at function scope for cleanup in catch block
+  let oauthCookieFile = null;
+
   // Update status to downloading
   await Content.findByIdAndUpdate(contentId, {
     youTubeDownloadStatus: 'downloading',
@@ -390,7 +393,6 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     const authStrategies = [];
 
     // Check if Google OAuth is available and try to generate cookies from it
-    let oauthCookieFile = null;
     if (googleOAuth.isAuthenticated()) {
       try {
         oauthCookieFile = path.join(DOWNLOADS_DIR, `oauth-cookies-${Date.now()}.txt`);
