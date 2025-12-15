@@ -299,19 +299,31 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       : '';
 
     // Step 6: Define download strategies (ordered by quality preference)
-    // Using flexible format selection that falls back gracefully
+    // Explicitly request HIGH QUALITY formats first
     const downloadStrategies = [
+      {
+        name: '1080p HD',
+        format: 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]',
+        args: '--merge-output-format mp4',
+        description: 'HD 1080p quality'
+      },
+      {
+        name: '720p HD',
+        format: 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[height<=720]',
+        args: '--merge-output-format mp4',
+        description: 'HD 720p quality'
+      },
+      {
+        name: 'Best Available Quality',
+        format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
+        args: '--merge-output-format mp4',
+        description: 'Best available video+audio merged'
+      },
       {
         name: 'Best Quality (Auto)',
         format: 'bv*+ba/b',  // Best video + best audio, or best combined
         args: '--merge-output-format mp4',
         description: 'Automatic best quality selection'
-      },
-      {
-        name: 'Best Video+Audio',
-        format: 'bestvideo+bestaudio/best',
-        args: '--merge-output-format mp4',
-        description: 'Best separate streams merged'
       },
       {
         name: 'Best MP4',
@@ -324,12 +336,6 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
         format: 'best',
         args: '',
         description: 'Any available format'
-      },
-      {
-        name: 'Worst Quality (Fallback)',
-        format: 'worst',
-        args: '',
-        description: 'Lowest quality as last resort'
       }
     ];
 
