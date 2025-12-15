@@ -360,28 +360,54 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     }
 
     // Build authentication strategies (ordered by preference)
-    // Strategy 1: Use cookies file if available (most reliable when valid)
-    // Strategy 2: POT provider (requires bgutil-ytdlp-pot-provider plugin + server)  
-    // Strategy 3: OAuth2 if configured
-    // Strategy 4: No auth (may fail for restricted content)
+    // Strategy 1: POT provider FIRST (most reliable for bypassing bot detection)
+    // Strategy 2: POT + Cookies combined (for restricted videos)
+    // Strategy 3: Use cookies file alone if available
+    // Strategy 4: OAuth2 if configured  
+    // Strategy 5: No auth (may fail for restricted content)
     const authStrategies = [];
 
+    // POT token provider - PRIORITY 1 for bot detection bypass
+    // The plugin auto-detects the server at http://127.0.0.1:4416
+    // Adding explicit extractor-args ensures it's used properly
+    if (potProviderAvailable) {
+      // Try POT with web client first (most compatible)
+      authStrategies.push({
+        name: 'POT Token Provider (Web)',
+        args: '--extractor-args "youtube:player-client=web"',
+        description: 'Using BgUtils POT Provider with web client'
+      });
+      
+      // Try POT with mweb client (mobile web - often bypasses restrictions)
+      authStrategies.push({
+        name: 'POT Token Provider (mWeb)',
+        args: '--extractor-args "youtube:player-client=mweb"',
+        description: 'Using BgUtils POT Provider with mobile web client'
+      });
+
+      // Try POT with TV client (another fallback)
+      authStrategies.push({
+        name: 'POT Token Provider (TV)',
+        args: '--extractor-args "youtube:player-client=tv"',
+        description: 'Using BgUtils POT Provider with TV client'
+      });
+    }
+
+    // POT + Cookies combined (for age-restricted or login-required videos)
+    if (potProviderAvailable && cookieFileExists) {
+      authStrategies.push({
+        name: 'POT + Cookies Combined',
+        args: `--cookies "${cookieFile}" --extractor-args "youtube:player-client=web"`,
+        description: 'Using POT Provider with cookies for restricted content'
+      });
+    }
+
+    // Cookies alone (may still trigger bot detection on some IPs)
     if (cookieFileExists) {
       authStrategies.push({
         name: 'Cookie Authentication',
         args: `--cookies "${cookieFile}"`,
-        description: 'Using exported browser cookies'
-      });
-    }
-
-    // POT token provider - the plugin auto-detects the server when properly installed
-    // We don't need special args, just ensure the plugin is installed
-    // The plugin will automatically use http://127.0.0.1:4416 for POT tokens
-    if (potProviderAvailable) {
-      authStrategies.push({
-        name: 'POT Token Provider',
-        args: '', // Plugin auto-detects, no special args needed
-        description: 'Using BgUtils POT Provider (auto-detected by plugin)'
+        description: 'Using exported browser cookies only'
       });
     }
 
