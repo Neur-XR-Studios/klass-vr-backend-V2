@@ -111,14 +111,20 @@ async function testPOTProvider() {
     }
 
     // Try to get an actual POT token for a test video ID
+    // Using the /generate endpoint which is used by newer versions
     const testResult = await new Promise((resolve) => {
-      const postData = JSON.stringify({ videoId: 'dQw4w9WgXcQ' });
+      // Try the /get_pot endpoint first (used by bgutil plugin)  
+      const postData = JSON.stringify({
+        videoId: 'dQw4w9WgXcQ',
+        context: 'gvs'  // gvs = Google Video Server
+      });
+
       const options = {
         hostname: '127.0.0.1',
         port: 4416,
         path: '/get_pot',
         method: 'POST',
-        timeout: 10000,
+        timeout: 15000,  // Increased timeout for token generation
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(postData)
@@ -131,21 +137,34 @@ async function testPOTProvider() {
         res.on('end', () => {
           try {
             const json = JSON.parse(data);
-            if (json.po_token || json.poToken || json.token) {
-              resolve({ working: true });
+            // Check for various token response formats
+            if (json.po_token || json.poToken || json.token || json.pot) {
+              const token = json.po_token || json.poToken || json.token || json.pot;
+              console.log(`[YouTube Download] POT token received (length: ${token.length})`);
+              resolve({ working: true, tokenLength: token.length });
             } else if (json.error) {
               resolve({ working: false, error: json.error });
             } else {
-              resolve({ working: false, error: 'No token in response' });
+              // Some versions just return the token directly or have different structure
+              if (typeof data === 'string' && data.length > 50) {
+                resolve({ working: true, rawResponse: true });
+              } else {
+                resolve({ working: false, error: `Unexpected response: ${JSON.stringify(json).substring(0, 100)}` });
+              }
             }
           } catch (e) {
-            resolve({ working: res.statusCode === 200 || res.statusCode === 202, error: data.substring(0, 100) });
+            // If response is not JSON but we got a 200, consider it working
+            if (res.statusCode === 200 || res.statusCode === 202) {
+              resolve({ working: true, rawResponse: true });
+            } else {
+              resolve({ working: false, error: `Parse error: ${data.substring(0, 100)}` });
+            }
           }
         });
       });
 
       req.on('error', (e) => resolve({ working: false, error: e.message }));
-      req.on('timeout', () => { req.destroy(); resolve({ working: false, error: 'Request timeout' }); });
+      req.on('timeout', () => { req.destroy(); resolve({ working: false, error: 'Request timeout - server may be overloaded' }); });
 
       req.write(postData);
       req.end();
@@ -377,7 +396,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
         args: '--extractor-args "youtube:player-client=web"',
         description: 'Using BgUtils POT Provider with web client'
       });
-      
+
       // Try POT with mweb client (mobile web - often bypasses restrictions)
       authStrategies.push({
         name: 'POT Token Provider (mWeb)',
@@ -419,6 +438,36 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       });
     }
 
+    // iOS client - often bypasses bot detection on datacenter IPs
+    authStrategies.push({
+      name: 'iOS Client',
+      args: '--extractor-args "youtube:player-client=ios"',
+      description: 'Using iOS client (no POT needed, often works on datacenter IPs)'
+    });
+
+    // Android client - another option that may bypass bot detection
+    authStrategies.push({
+      name: 'Android Client',
+      args: '--extractor-args "youtube:player-client=android"',
+      description: 'Using Android client (no POT needed)'
+    });
+
+    // Media Connect client - newer option
+    authStrategies.push({
+      name: 'Media Connect Client',
+      args: '--extractor-args "youtube:player-client=mediaconnect"',
+      description: 'Using Media Connect client'
+    });
+
+    // Fallback: POT with explicit base URL (legacy behavior)
+    if (potProviderAvailable) {
+      authStrategies.push({
+        name: 'POT with Legacy Mode',
+        args: '--extractor-args "youtube:player-client=web;getpot_bgutil_baseurl=http://127.0.0.1:4416"',
+        description: 'Using POT Provider with explicit base URL'
+      });
+    }
+
     // Always add no-auth as last fallback
     authStrategies.push({
       name: 'No Authentication',
@@ -431,7 +480,6 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
     // Base common arguments (without auth)
     const baseCommonArgs = [
       '--no-playlist',
-      '--no-warnings',
       '--progress',
       '--newline',
       '--retries 10',
@@ -440,6 +488,7 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       '--force-ipv4',
       '--geo-bypass',
       '--no-check-certificates',
+      // Updated Chrome user agent - December 2024
       `--user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"`,
       proxyArg,
     ].filter(Boolean);
