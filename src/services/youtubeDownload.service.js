@@ -299,31 +299,19 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       : '';
 
     // Step 6: Define download strategies (ordered by quality preference)
-    // Get HIGHEST QUALITY available (4K, 8K if available)
+    // Use SIMPLE format selectors that WORK reliably
     const downloadStrategies = [
       {
-        name: 'Best Quality (4K/8K)',
-        format: 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best',
+        name: 'Best Quality (Merge)',
+        format: 'bestvideo+bestaudio',  // Simple: best video + best audio, merged
         args: '--merge-output-format mp4',
-        description: 'Highest quality video+audio (4K/8K if available)'
+        description: 'Best video+audio merged to MP4'
       },
       {
-        name: 'Best Quality (Auto)',
-        format: 'bv*+ba/b',  // Best video + best audio, or best combined
-        args: '--merge-output-format mp4',
-        description: 'Automatic best quality selection'
-      },
-      {
-        name: 'Best MP4',
-        format: 'best[ext=mp4]/best',
+        name: 'Best Single File',
+        format: 'best',  // Best pre-merged format
         args: '',
-        description: 'Best MP4 format available'
-      },
-      {
-        name: 'Any Format',
-        format: 'best',
-        args: '',
-        description: 'Any available format'
+        description: 'Best available single format'
       }
     ];
 
