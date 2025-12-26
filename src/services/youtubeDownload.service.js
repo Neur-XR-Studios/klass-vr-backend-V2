@@ -193,6 +193,157 @@ function extractVideoId(url) {
 }
 
 /**
+ * Convert video to AVCC/H.264 format for VR AV Pro player compatibility
+ * Uses FFmpeg with H.264 High Profile for best VR compatibility
+ * 
+ * @param {string} inputPath - Path to input video file
+ * @param {string} outputPath - Path for output H.264 video
+ * @returns {Promise<string>} - Path to converted file
+ */
+async function convertToAVCC(inputPath, outputPath) {
+  console.log('[YouTube Download] ═══════════════════════════════════════');
+  console.log('[YouTube Download] Starting AVCC/H.264 conversion for VR');
+  console.log('[YouTube Download] Input:', inputPath);
+  console.log('[YouTube Download] Output:', outputPath);
+
+  // Check if input file exists
+  if (!fs.existsSync(inputPath)) {
+    throw new Error(`Input file not found: ${inputPath}`);
+  }
+
+  // Get input video info first
+  let needsConversion = true;
+  try {
+    const { stdout: metadataJson } = await execPromise(
+      `ffprobe -v quiet -print_format json -show_streams "${inputPath}"`,
+      { env: EXEC_ENV }
+    );
+    const metadata = JSON.parse(metadataJson);
+    const videoStream = metadata.streams?.find(s => s.codec_type === 'video');
+
+    if (videoStream) {
+      const currentCodec = videoStream.codec_name?.toLowerCase();
+      console.log(`[YouTube Download] Current codec: ${currentCodec}`);
+      console.log(`[YouTube Download] Resolution: ${videoStream.width}x${videoStream.height}`);
+
+      // Check if already H.264
+      if (currentCodec === 'h264' || currentCodec === 'avc1') {
+        console.log('[YouTube Download] Video is already H.264/AVCC - skipping conversion');
+        needsConversion = false;
+      }
+    }
+  } catch (e) {
+    console.log('[YouTube Download] Could not check codec, proceeding with conversion');
+  }
+
+  if (!needsConversion) {
+    // Just copy the file
+    fs.copyFileSync(inputPath, outputPath);
+    return outputPath;
+  }
+
+  // FFmpeg command for AVCC conversion
+  // - libx264: H.264/AVCC codec
+  // - preset medium: Good balance of speed and quality
+  // - crf 18: High quality (visually lossless)
+  // - profile:v high, level:v 4.2: H.264 High Profile Level 4.2 (VR compatible)
+  // - aac audio at 192kbps
+  // - movflags +faststart: Enable streaming
+  const ffmpegCmd = [
+    'ffmpeg',
+    '-y',  // Overwrite output
+    '-i', `"${inputPath}"`,
+    '-c:v', 'libx264',
+    '-preset', 'medium',
+    '-crf', '18',
+    '-profile:v', 'high',
+    '-level:v', '4.2',
+    '-pix_fmt', 'yuv420p',  // Compatibility
+    '-c:a', 'aac',
+    '-b:a', '192k',
+    '-movflags', '+faststart',
+    `"${outputPath}"`
+  ].join(' ');
+
+  console.log('[YouTube Download] FFmpeg command:', ffmpegCmd.substring(0, 200) + '...');
+
+  try {
+    await new Promise((resolve, reject) => {
+      const child = exec(ffmpegCmd, {
+        maxBuffer: 1024 * 1024 * 100,
+        timeout: 1200000, // 20 minute timeout for large files
+        env: EXEC_ENV
+      });
+
+      let lastProgress = '';
+
+      child.stderr.on('data', (data) => {
+        const output = String(data);
+        // FFmpeg outputs progress to stderr
+        if (output.includes('time=')) {
+          const match = output.match(/time=(\d{2}:\d{2}:\d{2})/);
+          if (match && match[1] !== lastProgress) {
+            lastProgress = match[1];
+            process.stdout.write(`\r[YouTube Download] Conversion progress: ${lastProgress}`);
+          }
+        }
+      });
+
+      child.on('close', (code) => {
+        console.log(''); // New line after progress
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`FFmpeg exited with code ${code}`));
+        }
+      });
+
+      child.on('error', reject);
+    });
+
+    // Verify output file
+    if (!fs.existsSync(outputPath)) {
+      throw new Error('Conversion failed - output file not created');
+    }
+
+    const stats = fs.statSync(outputPath);
+    if (stats.size < 1000) {
+      throw new Error('Conversion failed - output file too small');
+    }
+
+    console.log('[YouTube Download] ✓ AVCC conversion complete!');
+    console.log(`[YouTube Download] ✓ Output size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+
+    // Verify output codec
+    try {
+      const { stdout: outMeta } = await execPromise(
+        `ffprobe -v quiet -print_format json -show_streams "${outputPath}"`,
+        { env: EXEC_ENV }
+      );
+      const metadata = JSON.parse(outMeta);
+      const videoStream = metadata.streams?.find(s => s.codec_type === 'video');
+      if (videoStream) {
+        console.log(`[YouTube Download] ✓ Output codec: ${videoStream.codec_name}`);
+        console.log(`[YouTube Download] ✓ Output resolution: ${videoStream.width}x${videoStream.height}`);
+      }
+    } catch (e) {
+      // Non-critical error
+    }
+
+    console.log('[YouTube Download] ═══════════════════════════════════════');
+    return outputPath;
+
+  } catch (error) {
+    console.error('[YouTube Download] ✗ AVCC conversion failed:', error.message);
+    // Clean up failed output
+    if (fs.existsSync(outputPath)) {
+      try { fs.unlinkSync(outputPath); } catch { }
+    }
+    throw error;
+  }
+}
+
+/**
  * Download YouTube video with yt-dlp - ROBUST PERMANENT SOLUTION
  * Uses PO Token plugin (recommended) with multiple client fallbacks
  * Downloads HIGHEST AVAILABLE quality, merges video+audio, outputs single MP4
@@ -299,19 +450,31 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       : '';
 
     // Step 6: Define download strategies (ordered by quality preference)
-    // Use SIMPLE format selectors that WORK reliably
+    // Explicitly request higher resolutions: 4K > 2K > 1080p > 720p > best available
     const downloadStrategies = [
       {
-        name: 'Best Quality (Merge)',
-        format: 'bestvideo+bestaudio',  // Simple: best video + best audio, merged
+        name: '4K Quality (Best)',
+        format: 'bestvideo[height>=2160]+bestaudio/bestvideo[height>=1440]+bestaudio/bestvideo[height>=1080]+bestaudio/bestvideo+bestaudio',
         args: '--merge-output-format mp4',
-        description: 'Best video+audio merged to MP4'
+        description: '4K/2K/1080p preference, merged to MP4'
+      },
+      {
+        name: 'High Quality VP9/AV1',
+        format: 'bestvideo[vcodec^=vp9][height>=1080]+bestaudio/bestvideo[vcodec^=av01][height>=1080]+bestaudio/bestvideo[height>=1080]+bestaudio',
+        args: '--merge-output-format mp4',
+        description: 'VP9/AV1 codec at 1080p+, merged to MP4'
+      },
+      {
+        name: '1080p Fallback',
+        format: 'bestvideo[height>=720]+bestaudio/bestvideo+bestaudio',
+        args: '--merge-output-format mp4',
+        description: '720p+ fallback with audio merge'
       },
       {
         name: 'Best Single File',
-        format: 'best',  // Best pre-merged format
+        format: 'best[height>=720]/best',
         args: '',
-        description: 'Best available single format'
+        description: 'Best available pre-merged format'
       }
     ];
 
@@ -790,8 +953,31 @@ async function processYouTubeVideo(contentId) {
     // Step 4: Download video (highest quality available)
     localFilePath = await downloadYouTubeVideo(youtubeUrl, contentId, options);
 
-    // Step 5: Extract actual format details from downloaded file
-    const stats = fs.statSync(localFilePath);
+    // Step 5: Convert to AVCC/H.264 for VR AV Pro player compatibility
+    console.log('[YouTube Processor] Converting to AVCC/H.264 for VR compatibility...');
+
+    youtubeVideo.downloadStatus = 'converting';
+    await youtubeVideo.save();
+
+    await Content.findByIdAndUpdate(contentId, {
+      youTubeDownloadStatus: 'converting',
+    });
+
+    // Create path for converted file
+    const convertedFilePath = localFilePath.replace('.mp4', '_h264.mp4');
+    let fileToUpload = localFilePath;
+
+    try {
+      await convertToAVCC(localFilePath, convertedFilePath);
+      fileToUpload = convertedFilePath;
+      console.log('[YouTube Processor] ✓ AVCC conversion successful');
+    } catch (conversionError) {
+      console.log('[YouTube Processor] ⚠ AVCC conversion failed, using original file:', conversionError.message);
+      // Continue with original file if conversion fails
+    }
+
+    // Step 6: Extract actual format details from the file to upload
+    const stats = fs.statSync(fileToUpload);
     const fileSizeMB = (stats.size / 1024 / 1024).toFixed(2);
 
     // Get actual resolution from video file
@@ -802,10 +988,11 @@ async function processYouTubeVideo(contentId) {
       filesize: stats.size,
       filesizeMB: parseFloat(fileSizeMB),
       ext: 'mp4',
+      codec: 'h264',
     };
 
     try {
-      const { stdout: metadataJson } = await execPromise(`ffprobe -v quiet -print_format json -show_streams "${localFilePath}"`, { env: EXEC_ENV });
+      const { stdout: metadataJson } = await execPromise(`ffprobe -v quiet -print_format json -show_streams "${fileToUpload}"`, { env: EXEC_ENV });
       const metadata = JSON.parse(metadataJson);
       const videoStream = metadata.streams?.find(s => s.codec_type === 'video');
       if (videoStream && videoStream.width && videoStream.height) {
@@ -816,14 +1003,16 @@ async function processYouTubeVideo(contentId) {
           filesize: stats.size,
           filesizeMB: parseFloat(fileSizeMB),
           ext: 'mp4',
+          codec: videoStream.codec_name,
         };
-        console.log(`[YouTube Processor] ✓ Detected resolution: ${downloadedFormat.resolution}`);
+        console.log(`[YouTube Processor] ✓ Final resolution: ${downloadedFormat.resolution}`);
+        console.log(`[YouTube Processor] ✓ Final codec: ${downloadedFormat.codec}`);
       }
     } catch (error) {
       console.log('[YouTube Processor] Could not detect resolution, using default');
     }
 
-    // Step 6: Upload to S3
+    // Step 7: Upload to S3
     youtubeVideo.downloadStatus = 'uploading';
     await youtubeVideo.save();
 
@@ -832,15 +1021,15 @@ async function processYouTubeVideo(contentId) {
     });
 
     const s3Key = `youtube-videos/${videoId}/${videoId}.mp4`;
-    const s3Url = await uploadToS3(localFilePath, s3Key, 'video/mp4');
+    const s3Url = await uploadToS3(fileToUpload, s3Key, 'video/mp4');
 
-    // Step 7: Update YouTubeVideo with completion details
+    // Step 8: Update YouTubeVideo with completion details
     await youtubeVideo.markCompleted(s3Url, s3Key, downloadedFormat);
     await youtubeVideo.incrementUsage();
 
     console.log('[YouTube Processor] ✓ YouTubeVideo updated with S3 URL');
 
-    // Step 8: Update Content with S3 URL and reference
+    // Step 9: Update Content with S3 URL and reference
     await Content.findByIdAndUpdate(contentId, {
       youTubeDownloadStatus: 'completed',
       youTubeDownloadedUrl: s3Url,
@@ -852,8 +1041,11 @@ async function processYouTubeVideo(contentId) {
     console.log('[YouTube Processor] ✓ Processing complete! S3 URL:', s3Url);
     console.log('[YouTube Processor] ✓ YouTubeVideo ID:', youtubeVideo._id, '| Number:', youtubeVideo.videoNumber);
 
-    // Step 9: Clean up local file
+    // Step 10: Clean up local files (both original and converted)
     await deleteLocalFile(localFilePath);
+    if (convertedFilePath !== localFilePath && fs.existsSync(convertedFilePath)) {
+      await deleteLocalFile(convertedFilePath);
+    }
 
     return s3Url;
   } catch (error) {
@@ -887,4 +1079,5 @@ module.exports = {
   processYouTubeVideo,
   extractVideoId,
   testPOTProvider,
+  convertToAVCC,
 };
