@@ -20,3 +20,4 @@ module.exports.Perfomance = require("./studentPerformance.model");
 module.exports.liveControl = require("./live_control.model");
 module.exports.Simulation = require("./simulation.model");
 module.exports.YouTubeVideo = require("./youtubeVideo.model");
+module.exports.ScholarlabSession = require("./scholarlabSession.model");

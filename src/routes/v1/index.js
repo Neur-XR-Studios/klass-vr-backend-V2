@@ -26,6 +26,7 @@ const uploadRoute = require("./upload.route");
 const youtubeProxyRoute = require("./youtubeProxy.route");
 const youtubeDownloadRoute = require("./youtubeDownload.route");
 const youtubeCookiesRoute = require("./youtubeCookies.route");
+const scholarlabRoute = require("./scholarlab.route");
 
 const router = express.Router();
 
@@ -129,6 +130,10 @@ const defaultRoutes = [
   {
     path: "/youtube-cookies",
     route: youtubeCookiesRoute,
+  },
+  {
+    path: "/scholarlab",
+    route: scholarlabRoute,
   },
 ];
 

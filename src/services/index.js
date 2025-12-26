@@ -19,3 +19,4 @@ module.exports.experienceConductedService = require("./experienceConducted.servi
 module.exports.activeAndSyncTableService = require("./activeAndSyncTable.service");
 module.exports.perfomanceService = require("./perfomance.service");
 module.exports.simulationService = require("./simulation.service");
+module.exports.scholarlabService = require("./scholarlab.service");

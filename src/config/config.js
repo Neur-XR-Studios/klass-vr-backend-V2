@@ -37,7 +37,7 @@ const envVarsSchema = Joi.object()
     ADMIN_NOTIFICATION_EMAIL: Joi.string().allow(''),
     ADMIN_SECRET: Joi.string().allow(''),
     SERVER_URL: Joi.string().allow(''),
-
+    SCHOLARLAB_CLIENT_TOKEN: Joi.string().allow('').description('Scholarlab API client token'),
   })
   .unknown();
 
@@ -99,5 +99,10 @@ module.exports = {
     notificationEmail: envVars.ADMIN_NOTIFICATION_EMAIL,
     secret: envVars.ADMIN_SECRET,
     serverUrl: envVars.SERVER_URL,
+  },
+  scholarlab: {
+    clientToken: envVars.SCHOLARLAB_CLIENT_TOKEN || '',
+    baseUrl: 'https://api.scholarlab.in',
+    tokenTtlMinutes: 55, // 5-minute buffer before 60-minute expiry
   },
 };
