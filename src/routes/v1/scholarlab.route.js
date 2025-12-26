@@ -17,7 +17,7 @@ router
 router
     .route('/launch')
     .post(
-        auth('launchSimulation'),
+        auth('getSimulations'),
         validate(scholarlabValidation.launchSimulation),
         scholarlabController.launchSimulation
     );
