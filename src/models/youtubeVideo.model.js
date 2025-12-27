@@ -8,7 +8,7 @@ const youtubeVideoSchema = mongoose.Schema(
       type: Number,
       unique: true,
     },
-    
+
     // YouTube video identification
     youTubeUrl: {
       type: String,
@@ -16,33 +16,33 @@ const youtubeVideoSchema = mongoose.Schema(
       unique: true, // Ensure one entry per unique URL
       trim: true,
     },
-    
+
     videoId: {
       type: String,
       required: true,
       unique: true, // YouTube video ID (extracted from URL)
       index: true,
     },
-    
+
     // Download status
     downloadStatus: {
       type: String,
-      enum: ['pending', 'downloading', 'uploading', 'completed', 'failed'],
+      enum: ['pending', 'downloading', 'converting', 'uploading', 'completed', 'failed'],
       default: 'pending',
       index: true,
     },
-    
+
     // S3 storage
     s3Url: {
       type: String,
       default: null,
     },
-    
+
     s3Key: {
       type: String,
       default: null,
     },
-    
+
     // Download progress and error
     downloadProgress: {
       type: Number,
@@ -50,12 +50,12 @@ const youtubeVideoSchema = mongoose.Schema(
       min: 0,
       max: 100,
     },
-    
+
     downloadError: {
       type: String,
       default: null,
     },
-    
+
     // Video metadata
     metadata: {
       title: { type: String },
@@ -71,7 +71,7 @@ const youtubeVideoSchema = mongoose.Schema(
       categories: [{ type: String }],
       tags: [{ type: String }],
     },
-    
+
     // Downloaded video details
     downloadedFormat: {
       resolution: { type: String }, // e.g., "3840x2160", "1920x1080"
@@ -86,24 +86,24 @@ const youtubeVideoSchema = mongoose.Schema(
       format: { type: String }, // Full format string from yt-dlp
       is4K: { type: Boolean, default: false }, // true if 2160p
     },
-    
+
     // Download timestamps
     downloadStartedAt: {
       type: Date,
       default: null,
     },
-    
+
     downloadCompletedAt: {
       type: Date,
       default: null,
     },
-    
+
     // Reference count (how many Content entries use this video)
     usageCount: {
       type: Number,
       default: 0,
     },
-    
+
     // Last accessed
     lastAccessedAt: {
       type: Date,
@@ -125,17 +125,17 @@ youtubeVideoSchema.plugin(AutoIncrement, {
 youtubeVideoSchema.index({ downloadStatus: 1, createdAt: -1 });
 
 // Static method to find or create by URL
-youtubeVideoSchema.statics.findOrCreateByUrl = async function(youTubeUrl) {
+youtubeVideoSchema.statics.findOrCreateByUrl = async function (youTubeUrl) {
   // Extract video ID from URL
   const videoIdMatch = youTubeUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?/]+)/);
   if (!videoIdMatch) {
     throw new Error('Invalid YouTube URL');
   }
   const videoId = videoIdMatch[1];
-  
+
   // Find existing video
   let video = await this.findOne({ videoId });
-  
+
   if (!video) {
     // Create new video entry
     video = await this.create({
@@ -144,19 +144,19 @@ youtubeVideoSchema.statics.findOrCreateByUrl = async function(youTubeUrl) {
       downloadStatus: 'pending',
     });
   }
-  
+
   return video;
 };
 
 // Method to update usage count
-youtubeVideoSchema.methods.incrementUsage = async function() {
+youtubeVideoSchema.methods.incrementUsage = async function () {
   this.usageCount += 1;
   this.lastAccessedAt = new Date();
   await this.save();
 };
 
 // Method to update metadata
-youtubeVideoSchema.methods.updateMetadata = async function(metadata) {
+youtubeVideoSchema.methods.updateMetadata = async function (metadata) {
   this.metadata = {
     ...this.metadata,
     ...metadata,
@@ -165,7 +165,7 @@ youtubeVideoSchema.methods.updateMetadata = async function(metadata) {
 };
 
 // Method to mark as completed
-youtubeVideoSchema.methods.markCompleted = async function(s3Url, s3Key, downloadedFormat) {
+youtubeVideoSchema.methods.markCompleted = async function (s3Url, s3Key, downloadedFormat) {
   this.downloadStatus = 'completed';
   this.s3Url = s3Url;
   this.s3Key = s3Key;
@@ -177,7 +177,7 @@ youtubeVideoSchema.methods.markCompleted = async function(s3Url, s3Key, download
 };
 
 // Method to mark as failed
-youtubeVideoSchema.methods.markFailed = async function(error) {
+youtubeVideoSchema.methods.markFailed = async function (error) {
   this.downloadStatus = 'failed';
   this.downloadError = error;
   this.downloadProgress = 0;
