@@ -450,31 +450,38 @@ async function downloadYouTubeVideo(youtubeUrl, contentId, options = {}) {
       : '';
 
     // Step 6: Define download strategies (ordered by quality preference)
-    // Explicitly request higher resolutions: 4K > 2K > 1080p > 720p > best available
+    // PRIORITIZE H.264/AVC codec for VR AV Pro player compatibility
+    // AV1 and VP9 require conversion which may fail or be slow
     const downloadStrategies = [
       {
-        name: '4K Quality (Best)',
+        name: '4K H.264 (VR Optimal)',
+        format: 'bestvideo[vcodec^=avc][height>=2160]+bestaudio/bestvideo[vcodec^=avc][height>=1440]+bestaudio/bestvideo[vcodec^=avc][height>=1080]+bestaudio/bestvideo[vcodec^=avc]+bestaudio',
+        args: '--merge-output-format mp4',
+        description: '4K/2K/1080p H.264 preference for VR compatibility'
+      },
+      {
+        name: '1080p H.264 Fallback',
+        format: 'bestvideo[vcodec^=avc][height>=720]+bestaudio/bestvideo[vcodec^=avc]+bestaudio',
+        args: '--merge-output-format mp4',
+        description: '720p+ H.264 fallback for VR'
+      },
+      {
+        name: 'Best H.264/AVC Available',
+        format: 'best[vcodec^=avc]/bestvideo[vcodec^=avc]+bestaudio',
+        args: '--merge-output-format mp4',
+        description: 'Any H.264 format available'
+      },
+      {
+        name: '4K Any Codec (Will Convert)',
         format: 'bestvideo[height>=2160]+bestaudio/bestvideo[height>=1440]+bestaudio/bestvideo[height>=1080]+bestaudio/bestvideo+bestaudio',
         args: '--merge-output-format mp4',
-        description: '4K/2K/1080p preference, merged to MP4'
+        description: '4K/2K/1080p any codec - will convert to H.264'
       },
       {
-        name: 'High Quality VP9/AV1',
-        format: 'bestvideo[vcodec^=vp9][height>=1080]+bestaudio/bestvideo[vcodec^=av01][height>=1080]+bestaudio/bestvideo[height>=1080]+bestaudio',
-        args: '--merge-output-format mp4',
-        description: 'VP9/AV1 codec at 1080p+, merged to MP4'
-      },
-      {
-        name: '1080p Fallback',
-        format: 'bestvideo[height>=720]+bestaudio/bestvideo+bestaudio',
-        args: '--merge-output-format mp4',
-        description: '720p+ fallback with audio merge'
-      },
-      {
-        name: 'Best Single File',
+        name: 'Best Single File Any Codec',
         format: 'best[height>=720]/best',
         args: '',
-        description: 'Best available pre-merged format'
+        description: 'Best pre-merged format - will convert if needed'
       }
     ];
 
@@ -969,11 +976,40 @@ async function processYouTubeVideo(contentId) {
 
     try {
       await convertToAVCC(localFilePath, convertedFilePath);
-      fileToUpload = convertedFilePath;
-      console.log('[YouTube Processor] ✓ AVCC conversion successful');
+
+      // Verify the conversion actually produced an H.264 file
+      const { stdout: verifyMeta } = await execPromise(`ffprobe -v quiet -print_format json -show_streams "${convertedFilePath}"`, { env: EXEC_ENV });
+      const verifyData = JSON.parse(verifyMeta);
+      const verifyStream = verifyData.streams?.find(s => s.codec_type === 'video');
+      const outputCodec = verifyStream?.codec_name?.toLowerCase();
+
+      if (outputCodec === 'h264' || outputCodec === 'avc1') {
+        fileToUpload = convertedFilePath;
+        console.log('[YouTube Processor] ✓ AVCC conversion successful - verified H.264 output');
+      } else {
+        console.error(`[YouTube Processor] ✗ Conversion produced wrong codec: ${outputCodec}`);
+        throw new Error(`Conversion did not produce H.264. Got: ${outputCodec}`);
+      }
     } catch (conversionError) {
-      console.log('[YouTube Processor] ⚠ AVCC conversion failed, using original file:', conversionError.message);
-      // Continue with original file if conversion fails
+      console.error('[YouTube Processor] ✗ AVCC conversion failed:', conversionError.message);
+
+      // Check if original file is already H.264
+      try {
+        const { stdout: origMeta } = await execPromise(`ffprobe -v quiet -print_format json -show_streams "${localFilePath}"`, { env: EXEC_ENV });
+        const origData = JSON.parse(origMeta);
+        const origStream = origData.streams?.find(s => s.codec_type === 'video');
+        const origCodec = origStream?.codec_name?.toLowerCase();
+
+        if (origCodec === 'h264' || origCodec === 'avc1') {
+          console.log('[YouTube Processor] ✓ Original file is already H.264, using it');
+          fileToUpload = localFilePath;
+        } else {
+          // Original is AV1/VP9 and conversion failed - this is a critical error for VR
+          throw new Error(`Video codec ${origCodec} is not VR compatible and conversion to H.264 failed: ${conversionError.message}`);
+        }
+      } catch (probeError) {
+        throw new Error(`Cannot determine video codec and conversion failed: ${conversionError.message}`);
+      }
     }
 
     // Step 6: Extract actual format details from the file to upload
